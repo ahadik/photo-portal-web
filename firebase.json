@@ -1,0 +1,23 @@
+{
+  "functions": {
+    "source": "functions"
+  },
+  "hosting": [
+    {
+      "target": "admin",
+      "public": "admin-app/dist",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "rewrites": [
+        { "source": "**", "destination": "/index.html" }
+      ]
+    },
+    {
+      "target": "device",
+      "public": "device-app/dist",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "rewrites": [
+        { "source": "**", "destination": "/index.html" }
+      ]
+    }
+  ]
+}
