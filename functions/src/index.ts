@@ -33,6 +33,25 @@ function orientationFromAspect(aspectRatio: number): "landscape" | "portrait" {
   return aspectRatio >= 1 ? "landscape" : "portrait";
 }
 
+/**
+ * Generate the correct Storage URL based on environment (emulator vs production)
+ * Emulator format: http://localhost:9199/v0/b/{bucket}/o/{path}?alt=media
+ * Production format: https://storage.googleapis.com/{bucket}/{path}
+ */
+function getStorageUrl(bucket: string, path: string): string {
+  const isEmulator = process.env.FUNCTIONS_EMULATOR === 'true' || 
+                     process.env.STORAGE_EMULATOR_HOST !== undefined;
+  
+  if (isEmulator) {
+    // Emulator URL format
+    const encodedPath = encodeURIComponent(path);
+    return `http://localhost:9199/v0/b/${bucket}/o/${encodedPath}?alt=media`;
+  }
+  
+  // Production URL format
+  return `https://storage.googleapis.com/${bucket}/${path}`;
+}
+
 async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
   if (!MAPBOX_TOKEN) return null;
   const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?access_token=${MAPBOX_TOKEN}`;
@@ -55,18 +74,10 @@ export const processUpload = onObjectFinalized(
     timeoutSeconds: 120,
   },
   async (event) => {
-    console.log("📸 processUpload triggered");
-    console.log("Event data:", JSON.stringify(event.data, null, 2));
-    
     const filePath = event.data.name;
     const bucketName = event.data.bucket || MEDIA_BUCKET;
     
-    console.log(`File path: ${filePath}`);
-    console.log(`Bucket: ${bucketName}`);
-    console.log(`Expected bucket: ${MEDIA_BUCKET}`);
-    
     if (!filePath || !filePath.startsWith("uploads/")) {
-      console.log("⚠️  File path doesn't start with 'uploads/', skipping");
       return;
     }
 
@@ -74,91 +85,84 @@ export const processUpload = onObjectFinalized(
       const bucket = storage.bucket(bucketName);
       const tempFilePath = `/tmp/${filePath.split("/").pop()}`;
 
-      console.log(`📥 Downloading from ${bucketName}/${filePath} to ${tempFilePath}`);
       // Download original file
       await bucket.file(filePath).download({destination: tempFilePath});
-      console.log("✅ File downloaded successfully");
 
-    // Read EXIF
-    const exifData: any = await exifr.parse(tempFilePath).catch(() => null);
+      // Read EXIF
+      const exifData: any = await exifr.parse(tempFilePath).catch(() => null);
 
-    const capturedAt = exifData?.DateTimeOriginal
-      ? new Date(exifData.DateTimeOriginal).toISOString()
-      : null;
+      const capturedAt = exifData?.DateTimeOriginal
+        ? new Date(exifData.DateTimeOriginal).toISOString()
+        : null;
 
-    const lat = exifData?.latitude;
-    const lon = exifData?.longitude;
+      const lat = exifData?.latitude;
+      const lon = exifData?.longitude;
 
-    // Process image with sharp
-    const image = sharp(tempFilePath).rotate();
-    const resized = image.resize(2048, 2048, {
-      fit: "inside",
-      withoutEnlargement: true,
-    });
-    const {width = 0, height = 0} = await resized.metadata();
-    const aspectRatio = width && height ? width / height : 1;
+      // Process image with sharp
+      const image = sharp(tempFilePath).rotate();
+      const resized = image.resize(2048, 2048, {
+        fit: "inside",
+        withoutEnlargement: true,
+      });
+      const {width = 0, height = 0} = await resized.metadata();
+      const aspectRatio = width && height ? width / height : 1;
 
-    const photoId = uuidv4().replace(/-/g, "");
-    const photoFilename = `photos/${photoId}.jpg`;
-    const thumbFilename = `thumbs/${photoId}.jpg`;
+      const photoId = uuidv4().replace(/-/g, "");
+      const photoFilename = `photos/${photoId}.jpg`;
+      const thumbFilename = `thumbs/${photoId}.jpg`;
 
-    const [photoBuffer, thumbBuffer] = await Promise.all([
-      resized.jpeg({quality: 90}).toBuffer(),
-      image.resize({width: 400}).jpeg({quality: 80}).toBuffer(),
-    ]);
+      const [photoBuffer, thumbBuffer] = await Promise.all([
+        resized.jpeg({quality: 90}).toBuffer(),
+        image.resize({width: 400}).jpeg({quality: 80}).toBuffer(),
+      ]);
 
-    await Promise.all([
-      bucket.file(photoFilename).save(photoBuffer, {contentType: "image/jpeg"}),
-      bucket.file(thumbFilename).save(thumbBuffer, {contentType: "image/jpeg"}),
-    ]);
+      await Promise.all([
+        bucket.file(photoFilename).save(photoBuffer, {contentType: "image/jpeg"}),
+        bucket.file(thumbFilename).save(thumbBuffer, {contentType: "image/jpeg"}),
+      ]);
 
-    let locationName: string | null = null;
-    if (typeof lat === "number" && typeof lon === "number") {
-      locationName = await reverseGeocode(lat, lon);
-    }
-
-    const now = new Date().toISOString();
-
-    const photoEntry: PhotoEntry = {
-      id: photoId,
-      photoUrl: `https://storage.googleapis.com/${MEDIA_BUCKET}/${photoFilename}`,
-      thumbUrl: `https://storage.googleapis.com/${MEDIA_BUCKET}/${thumbFilename}`,
-      width: width || 0,
-      height: height || 0,
-      aspectRatio,
-      orientation: orientationFromAspect(aspectRatio),
-      capturedAt,
-      uploadedAt: now,
-      location:
-        typeof lat === "number" && typeof lon === "number"
-          ? {lat, lon, name: locationName}
-          : null,
-    };
-
-    const photosJson = await readJsonFromBucket<PhotosJson>(
-      DATA_BUCKET,
-      "photos.json",
-      {
-        version: 1,
-        lastUpdated: now,
-        photos: [],
+      let locationName: string | null = null;
+      if (typeof lat === "number" && typeof lon === "number") {
+        locationName = await reverseGeocode(lat, lon);
       }
-    );
 
-    photosJson.photos.push(photoEntry);
-    photosJson.lastUpdated = now;
+      const now = new Date().toISOString();
 
-    await writeJsonToBucket(DATA_BUCKET, "photos.json", photosJson);
+      const photoEntry: PhotoEntry = {
+        id: photoId,
+        photoUrl: getStorageUrl(MEDIA_BUCKET, photoFilename),
+        thumbUrl: getStorageUrl(MEDIA_BUCKET, thumbFilename),
+        width: width || 0,
+        height: height || 0,
+        aspectRatio,
+        orientation: orientationFromAspect(aspectRatio),
+        capturedAt,
+        uploadedAt: now,
+        location:
+          typeof lat === "number" && typeof lon === "number"
+            ? {lat, lon, name: locationName}
+            : null,
+      };
 
-    // Delete original upload
-    await bucket.file(filePath).delete({ignoreNotFound: true});
-    
-    console.log("✅ processUpload completed successfully");
+      const photosJson = await readJsonFromBucket<PhotosJson>(
+        DATA_BUCKET,
+        "photos.json",
+        {
+          version: 1,
+          lastUpdated: now,
+          photos: [],
+        }
+      );
+
+      photosJson.photos.push(photoEntry);
+      photosJson.lastUpdated = now;
+
+      await writeJsonToBucket(DATA_BUCKET, "photos.json", photosJson);
+
+      // Delete original upload
+      await bucket.file(filePath).delete({ignoreNotFound: true});
     } catch (error: any) {
-      console.error("❌ Error in processUpload:", error);
-      console.error("Error stack:", error.stack);
-      console.error("Error name:", error.name);
-      console.error("Error message:", error.message);
+      console.error("Error in processUpload:", error);
       throw error;
     }
   }
