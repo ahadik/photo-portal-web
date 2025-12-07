@@ -21,48 +21,68 @@ admin.initializeApp();
 // Configure Storage to use emulator if running in emulator mode
 // Firebase Functions emulator sets FUNCTIONS_EMULATOR=true
 // Note: STORAGE_EMULATOR_HOST must include http:// protocol
-if (process.env.FUNCTIONS_EMULATOR === 'true') {
-  process.env.STORAGE_EMULATOR_HOST = 'http://localhost:9199';
+if (process.env.FUNCTIONS_EMULATOR === "true") {
+  process.env.STORAGE_EMULATOR_HOST = "http://localhost:9199";
 }
 
 const storage = new Storage();
 
 const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
 
+/**
+ * Determines photo orientation based on aspect ratio.
+ * @param {number} aspectRatio - The width/height ratio of the image.
+ * @return {"landscape" | "portrait"} "landscape" if aspectRatio >= 1,
+ *     "portrait" otherwise.
+ */
 function orientationFromAspect(aspectRatio: number): "landscape" | "portrait" {
   return aspectRatio >= 1 ? "landscape" : "portrait";
 }
 
 /**
- * Generate the correct Storage URL based on environment (emulator vs production)
+ * Generate the correct Storage URL based on environment (emulator vs
+ * production).
  * Emulator format: http://localhost:9199/v0/b/{bucket}/o/{path}?alt=media
  * Production format: https://storage.googleapis.com/{bucket}/{path}
+ * @param {string} bucket - The storage bucket name.
+ * @param {string} path - The file path within the bucket.
+ * @return {string} The appropriate Storage URL for the environment.
  */
 function getStorageUrl(bucket: string, path: string): string {
-  const isEmulator = process.env.FUNCTIONS_EMULATOR === 'true' || 
-                     process.env.STORAGE_EMULATOR_HOST !== undefined;
-  
+  const isEmulator = process.env.FUNCTIONS_EMULATOR === "true" ||
+      process.env.STORAGE_EMULATOR_HOST !== undefined;
+
   if (isEmulator) {
     // Emulator URL format
     const encodedPath = encodeURIComponent(path);
     return `http://localhost:9199/v0/b/${bucket}/o/${encodedPath}?alt=media`;
   }
-  
+
   // Production URL format
   return `https://storage.googleapis.com/${bucket}/${path}`;
 }
 
-async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
+/**
+ * Reverse geocode coordinates to get a location name using Mapbox API.
+ * @param {number} lat - Latitude.
+ * @param {number} lon - Longitude.
+ * @return {Promise<string | null>} Location name or null if not found.
+ */
+async function reverseGeocode(
+  lat: number,
+  lon: number
+): Promise<string | null> {
   if (!MAPBOX_TOKEN) return null;
-  const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?access_token=${MAPBOX_TOKEN}`;
+  const url =
+    `https://api.mapbox.com/search/geocode/v6/reverse?longitude=${lon}8&latitude=${lat}&access_token=${MAPBOX_TOKEN}&limit=1`;
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = (await res.json()) as any;
-    const place = data.features?.[0]?.place_name as string | undefined;
+    const place = data.features?.[0]?.properties?.place_formatted as string | undefined;
     return place ?? null;
   } catch (err) {
-    console.error("reverseGeocode error", err);
     return null;
   }
 }
@@ -76,7 +96,7 @@ export const processUpload = onObjectFinalized(
   async (event) => {
     const filePath = event.data.name;
     const bucketName = event.data.bucket || MEDIA_BUCKET;
-    
+
     if (!filePath || !filePath.startsWith("uploads/")) {
       return;
     }
@@ -88,15 +108,19 @@ export const processUpload = onObjectFinalized(
       // Download original file
       await bucket.file(filePath).download({destination: tempFilePath});
 
-      // Read EXIF
-      const exifData: any = await exifr.parse(tempFilePath).catch(() => null);
+      // Read EXIF - exifr returns complex EXIF data structure
+      // eslint-disable-next-line import/no-named-as-default-member
+      const exifData =
+        // eslint-disable-next-line import/no-named-as-default-member
+        await exifr.parse(tempFilePath).catch(() => null) as
+        Record<string, unknown> | null;
 
-      const capturedAt = exifData?.DateTimeOriginal
-        ? new Date(exifData.DateTimeOriginal).toISOString()
-        : null;
+      const capturedAt = exifData?.DateTimeOriginal ?
+        new Date(exifData.DateTimeOriginal as string).toISOString() :
+        null;
 
-      const lat = exifData?.latitude;
-      const lon = exifData?.longitude;
+      const lat = exifData?.latitude as number | undefined;
+      const lon = exifData?.longitude as number | undefined;
 
       // Process image with sharp
       const image = sharp(tempFilePath).rotate();
@@ -117,8 +141,12 @@ export const processUpload = onObjectFinalized(
       ]);
 
       await Promise.all([
-        bucket.file(photoFilename).save(photoBuffer, {contentType: "image/jpeg"}),
-        bucket.file(thumbFilename).save(thumbBuffer, {contentType: "image/jpeg"}),
+        bucket.file(photoFilename).save(photoBuffer, {
+          contentType: "image/jpeg",
+        }),
+        bucket.file(thumbFilename).save(thumbBuffer, {
+          contentType: "image/jpeg",
+        }),
       ]);
 
       let locationName: string | null = null;
@@ -139,9 +167,9 @@ export const processUpload = onObjectFinalized(
         capturedAt,
         uploadedAt: now,
         location:
-          typeof lat === "number" && typeof lon === "number"
-            ? {lat, lon, name: locationName}
-            : null,
+          typeof lat === "number" && typeof lon === "number" ?
+            {lat, lon, name: locationName} :
+            null,
       };
 
       const photosJson = await readJsonFromBucket<PhotosJson>(
@@ -161,7 +189,7 @@ export const processUpload = onObjectFinalized(
 
       // Delete original upload
       await bucket.file(filePath).delete({ignoreNotFound: true});
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error in processUpload:", error);
       throw error;
     }

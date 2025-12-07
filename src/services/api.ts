@@ -2,9 +2,6 @@ import { ref, getBytes } from 'firebase/storage';
 import { dataStorage } from './firebase';
 import { PhotosJson, MessagesJson } from '../types';
 
-let photosEtag: string | null = null;
-let messagesEtag: string | null = null;
-
 export async function fetchPhotosIndex(): Promise<PhotosJson> {
   const fileRef = ref(dataStorage, 'photos.json');
   
