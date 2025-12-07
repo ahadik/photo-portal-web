@@ -40,8 +40,8 @@ export interface MessagesJson {
 
 const storage = new Storage();
 
-export const MEDIA_BUCKET = process.env.MEDIA_BUCKET || 'photoportal-media';
-export const DATA_BUCKET = process.env.DATA_BUCKET || 'photoportal-data';
+export const MEDIA_BUCKET = process.env.MEDIA_BUCKET || 'photo-portal-media';
+export const DATA_BUCKET = process.env.DATA_BUCKET || 'photo-portal-data';
 
 export async function readJsonFromBucket<T>(
   bucketName: string,
@@ -67,3 +67,4 @@ export async function writeJsonToBucket<T>(
     contentType: 'application/json',
   });
 }
+

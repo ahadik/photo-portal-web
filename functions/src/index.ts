@@ -1,10 +1,10 @@
-import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
-import sharp from 'sharp';
-import exifr from 'exifr';
-import fetch from 'node-fetch';
-import { v4 as uuidv4 } from 'uuid';
-import { Storage } from '@google-cloud/storage';
+import {onCall} from "firebase-functions/v2/https";
+import {onObjectFinalized} from "firebase-functions/v2/storage";
+import * as admin from "firebase-admin";
+import sharp from "sharp";
+import exifr from "exifr";
+import {v4 as uuidv4} from "uuid";
+import {Storage} from "@google-cloud/storage";
 import {
   MEDIA_BUCKET,
   DATA_BUCKET,
@@ -14,15 +14,15 @@ import {
   MessageEntry,
   readJsonFromBucket,
   writeJsonToBucket,
-} from './common';
+} from "./common";
 
 admin.initializeApp();
 const storage = new Storage();
 
 const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
 
-function orientationFromAspect(aspectRatio: number): 'landscape' | 'portrait' {
-  return aspectRatio >= 1 ? 'landscape' : 'portrait';
+function orientationFromAspect(aspectRatio: number): "landscape" | "portrait" {
+  return aspectRatio >= 1 ? "landscape" : "portrait";
 }
 
 async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
@@ -35,23 +35,28 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
     const place = data.features?.[0]?.place_name as string | undefined;
     return place ?? null;
   } catch (err) {
-    console.error('reverseGeocode error', err);
+    console.error("reverseGeocode error", err);
     return null;
   }
 }
 
-export const processUpload = functions.storage
-  .object()
-  .onFinalize(async (object) => {
-    const filePath = object.name;
-    if (!filePath) return;
-    if (!filePath.startsWith('uploads/')) return;
+export const processUpload = onObjectFinalized(
+  {
+    bucket: MEDIA_BUCKET,
+    memory: "1GiB",
+    timeoutSeconds: 120,
+  },
+  async (event) => {
+    const filePath = event.data.name;
+    if (!filePath || !filePath.startsWith("uploads/")) {
+      return;
+    }
 
-    const bucket = storage.bucket(object.bucket || MEDIA_BUCKET);
-    const tempFilePath = `/tmp/${filePath.split('/').pop()}`;
+    const bucket = storage.bucket(event.data.bucket || MEDIA_BUCKET);
+    const tempFilePath = `/tmp/${filePath.split("/").pop()}`;
 
     // Download original file
-    await bucket.file(filePath).download({ destination: tempFilePath });
+    await bucket.file(filePath).download({destination: tempFilePath});
 
     // Read EXIF
     const exifData: any = await exifr.parse(tempFilePath).catch(() => null);
@@ -65,29 +70,29 @@ export const processUpload = functions.storage
 
     // Process image with sharp
     const image = sharp(tempFilePath).rotate();
-    const resized = image.resize(2048, 2048, { fit: 'inside', withoutEnlargement: true });
-    const { width = 0, height = 0 } = await resized.metadata();
+    const resized = image.resize(2048, 2048, {
+      fit: "inside",
+      withoutEnlargement: true,
+    });
+    const {width = 0, height = 0} = await resized.metadata();
     const aspectRatio = width && height ? width / height : 1;
 
-    const photoId = uuidv4().replace(/-/g, '');
+    const photoId = uuidv4().replace(/-/g, "");
     const photoFilename = `photos/${photoId}.jpg`;
     const thumbFilename = `thumbs/${photoId}.jpg`;
 
     const [photoBuffer, thumbBuffer] = await Promise.all([
-      resized.jpeg({ quality: 90 }).toBuffer(),
-      image
-        .resize({ width: 400 })
-        .jpeg({ quality: 80 })
-        .toBuffer(),
+      resized.jpeg({quality: 90}).toBuffer(),
+      image.resize({width: 400}).jpeg({quality: 80}).toBuffer(),
     ]);
 
     await Promise.all([
-      bucket.file(photoFilename).save(photoBuffer, { contentType: 'image/jpeg' }),
-      bucket.file(thumbFilename).save(thumbBuffer, { contentType: 'image/jpeg' }),
+      bucket.file(photoFilename).save(photoBuffer, {contentType: "image/jpeg"}),
+      bucket.file(thumbFilename).save(thumbBuffer, {contentType: "image/jpeg"}),
     ]);
 
     let locationName: string | null = null;
-    if (typeof lat === 'number' && typeof lon === 'number') {
+    if (typeof lat === "number" && typeof lon === "number") {
       locationName = await reverseGeocode(lat, lon);
     }
 
@@ -104,74 +109,92 @@ export const processUpload = functions.storage
       capturedAt,
       uploadedAt: now,
       location:
-        typeof lat === 'number' && typeof lon === 'number'
-          ? { lat, lon, name: locationName }
+        typeof lat === "number" && typeof lon === "number"
+          ? {lat, lon, name: locationName}
           : null,
     };
 
-    const photosJson = await readJsonFromBucket<PhotosJson>(DATA_BUCKET, 'photos.json', {
-      version: 1,
-      lastUpdated: now,
-      photos: [],
-    });
+    const photosJson = await readJsonFromBucket<PhotosJson>(
+      DATA_BUCKET,
+      "photos.json",
+      {
+        version: 1,
+        lastUpdated: now,
+        photos: [],
+      }
+    );
 
     photosJson.photos.push(photoEntry);
     photosJson.lastUpdated = now;
 
-    await writeJsonToBucket(DATA_BUCKET, 'photos.json', photosJson);
+    await writeJsonToBucket(DATA_BUCKET, "photos.json", photosJson);
 
     // Delete original upload
-    await bucket.file(filePath).delete({ ignoreNotFound: true });
-  });
-
-export const sendMessage = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Authentication required');
+    await bucket.file(filePath).delete({ignoreNotFound: true});
   }
+);
 
-  const photoId = data.photoId as string | undefined;
-  const text = (data.text as string | '')?.trim();
+export const sendMessage = onCall(
+  {
+    enforceAppCheck: false,
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new Error("Authentication required");
+    }
 
-  if (!photoId) {
-    throw new functions.https.HttpsError('invalid-argument', 'photoId is required');
+    const photoId = request.data.photoId as string | undefined;
+    const text = (request.data.text as string | "")?.trim();
+
+    if (!photoId) {
+      throw new Error("photoId is required");
+    }
+
+    if (!text || text.length === 0 || text.length > 280) {
+      throw new Error("text must be 1-280 characters");
+    }
+
+    const now = new Date().toISOString();
+
+    const photosJson = await readJsonFromBucket<PhotosJson>(
+      DATA_BUCKET,
+      "photos.json",
+      {
+        version: 1,
+        lastUpdated: now,
+        photos: [],
+      }
+    );
+
+    const photoExists = photosJson.photos.some((p) => p.id === photoId);
+    if (!photoExists) {
+      throw new Error("Photo does not exist");
+    }
+
+    const messagesJson = await readJsonFromBucket<MessagesJson>(
+      DATA_BUCKET,
+      "messages.json",
+      {
+        version: 1,
+        lastUpdated: now,
+        messages: [],
+      }
+    );
+
+    const messageId = uuidv4().replace(/-/g, "");
+
+    const message: MessageEntry = {
+      id: messageId,
+      photoId,
+      text,
+      sentAt: now,
+    };
+
+    messagesJson.messages.push(message);
+    messagesJson.lastUpdated = now;
+
+    await writeJsonToBucket(DATA_BUCKET, "messages.json", messagesJson);
+
+    return message;
   }
-
-  if (!text || text.length === 0 || text.length > 280) {
-    throw new functions.https.HttpsError('invalid-argument', 'text must be 1-280 characters');
-  }
-
-  const now = new Date().toISOString();
-
-  const photosJson = await readJsonFromBucket<PhotosJson>(DATA_BUCKET, 'photos.json', {
-    version: 1,
-    lastUpdated: now,
-    photos: [],
-  });
-
-  const photoExists = photosJson.photos.some((p) => p.id === photoId);
-  if (!photoExists) {
-    throw new functions.https.HttpsError('failed-precondition', 'Photo does not exist');
-  }
-
-  const messagesJson = await readJsonFromBucket<MessagesJson>(DATA_BUCKET, 'messages.json', {
-    version: 1,
-    lastUpdated: now,
-    messages: [],
-  });
-
-  const messageId = uuidv4().replace(/-/g, '');
-
-  const message: MessageEntry = {
-    id: messageId,
-    photoId,
-    text,
-    sentAt: now,
-  };
-
-  messagesJson.messages.push(message);
-  messagesJson.lastUpdated = now;
-
-  await writeJsonToBucket(DATA_BUCKET, 'messages.json', messagesJson);
-
-  return message;
-});
+);
