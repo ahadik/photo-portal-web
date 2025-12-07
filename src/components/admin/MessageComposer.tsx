@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { sendMessage } from '../../services/firebase'
-import { getPhotosJsonUrl } from '../../config'
+import { fetchPhotosIndex } from '../../services/api'
 import { PhotoEntry } from '../../types'
 
 function MessageComposer() {
@@ -12,8 +12,7 @@ function MessageComposer() {
   const [success, setSuccess] = useState(false)
 
   useEffect(() => {
-    fetch(getPhotosJsonUrl())
-      .then((res) => res.json())
+    fetchPhotosIndex()
       .then((data) => setPhotos(data.photos || []))
       .catch((err) => console.error('Failed to load photos', err))
   }, [])

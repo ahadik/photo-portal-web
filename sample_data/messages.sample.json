@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "lastUpdated": "2024-12-15T11:00:00Z",
+  "messages": [
+    {
+      "id": "msg-001",
+      "photoId": "a1b2c3d4",
+      "text": "Thinking of you!",
+      "sentAt": "2024-12-15T11:00:00Z"
+    }
+  ]
+}

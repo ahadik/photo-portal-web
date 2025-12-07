@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { ref, uploadBytesResumable } from 'firebase/storage'
-import { storage } from '../../services/firebase'
-import { config } from '../../config'
+import { mediaStorage } from '../../services/firebase'
 
 interface UploadProgress {
   file: File
@@ -24,7 +23,7 @@ function PhotoUploader() {
       }
 
       const uploadId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-      const uploadRef = ref(storage, `${config.mediaBucket}/uploads/${uploadId}.jpg`)
+      const uploadRef = ref(mediaStorage, `uploads/${uploadId}.jpg`)
 
       const uploadTask = uploadBytesResumable(uploadRef, file)
 

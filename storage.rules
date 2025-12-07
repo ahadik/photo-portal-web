@@ -1,0 +1,30 @@
+rules_version = '2';
+
+service firebase.storage {
+  // Helper function to check if user is device account (read-only)
+  function isDeviceAccount() {
+    return request.auth != null && 
+           request.auth.token.email == 'alex+photoportaldevice@alexhadik.com';
+  }
+  
+  // Helper function to check if user is admin account (read + write)
+  function isAdminAccount() {
+    return request.auth != null && 
+           request.auth.token.email == 'alex@alexhadik.com';
+  }
+  
+  // Match all buckets and paths
+  match /b/{bucket}/o {
+    // Match all paths within any bucket
+    match /{allPaths=**} {
+      // Device account: read-only access
+      allow read: if isDeviceAccount();
+      
+      // Admin account: read and write access
+      allow read, write: if isAdminAccount();
+      
+      // Deny all other access
+      allow read, write: if false;
+    }
+  }
+}

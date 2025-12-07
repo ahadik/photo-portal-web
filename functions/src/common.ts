@@ -38,6 +38,18 @@ export interface MessagesJson {
   messages: MessageEntry[];
 }
 
+// Configure Storage to use emulator in development
+// The emulator is detected automatically if STORAGE_EMULATOR_HOST is set
+// or if running in emulator context
+// Note: STORAGE_EMULATOR_HOST must include http:// protocol
+if (process.env.FUNCTIONS_EMULATOR === 'true' || process.env.FIREBASE_STORAGE_EMULATOR_HOST) {
+  const emulatorHost = process.env.FIREBASE_STORAGE_EMULATOR_HOST || 'localhost:9199';
+  // Ensure http:// prefix is included
+  process.env.STORAGE_EMULATOR_HOST = emulatorHost.startsWith('http') 
+    ? emulatorHost 
+    : `http://${emulatorHost}`;
+}
+
 const storage = new Storage();
 
 export const MEDIA_BUCKET = process.env.MEDIA_BUCKET || 'photo-portal-media';

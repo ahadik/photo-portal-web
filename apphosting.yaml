@@ -1,0 +1,32 @@
+# Settings for Backend (on Cloud Run).
+# See https://firebase.google.com/docs/app-hosting/configure#cloud-run
+runConfig:
+  minInstances: 0
+  # maxInstances: 100
+  # concurrency: 80
+  # cpu: 1
+  # memoryMiB: 512
+
+# Environment variables and secrets.
+env:
+  # Configure environment variables.
+  # See https://firebase.google.com/docs/app-hosting/configure#user-defined-environment
+  - variable: VITE_MEDIA_BUCKET
+    value: photo-portal-media
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: VITE_DATA_BUCKET
+    value: photo-portal-data
+    availability:
+      - BUILD
+      - RUNTIME
+
+  # Grant access to secrets in Cloud Secret Manager.
+  # See https://firebase.google.com/docs/app-hosting/configure#secret-parameters
+  - variable: VITE_MAPBOX_TOKEN
+    secret: mapbox_api_key
+    availability:
+        - BUILD
+        - RUNTIME

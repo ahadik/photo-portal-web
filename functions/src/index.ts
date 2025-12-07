@@ -17,6 +17,14 @@ import {
 } from "./common";
 
 admin.initializeApp();
+
+// Configure Storage to use emulator if running in emulator mode
+// Firebase Functions emulator sets FUNCTIONS_EMULATOR=true
+// Note: STORAGE_EMULATOR_HOST must include http:// protocol
+if (process.env.FUNCTIONS_EMULATOR === 'true') {
+  process.env.STORAGE_EMULATOR_HOST = 'http://localhost:9199';
+}
+
 const storage = new Storage();
 
 const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
@@ -47,16 +55,29 @@ export const processUpload = onObjectFinalized(
     timeoutSeconds: 120,
   },
   async (event) => {
+    console.log("📸 processUpload triggered");
+    console.log("Event data:", JSON.stringify(event.data, null, 2));
+    
     const filePath = event.data.name;
+    const bucketName = event.data.bucket || MEDIA_BUCKET;
+    
+    console.log(`File path: ${filePath}`);
+    console.log(`Bucket: ${bucketName}`);
+    console.log(`Expected bucket: ${MEDIA_BUCKET}`);
+    
     if (!filePath || !filePath.startsWith("uploads/")) {
+      console.log("⚠️  File path doesn't start with 'uploads/', skipping");
       return;
     }
 
-    const bucket = storage.bucket(event.data.bucket || MEDIA_BUCKET);
-    const tempFilePath = `/tmp/${filePath.split("/").pop()}`;
+    try {
+      const bucket = storage.bucket(bucketName);
+      const tempFilePath = `/tmp/${filePath.split("/").pop()}`;
 
-    // Download original file
-    await bucket.file(filePath).download({destination: tempFilePath});
+      console.log(`📥 Downloading from ${bucketName}/${filePath} to ${tempFilePath}`);
+      // Download original file
+      await bucket.file(filePath).download({destination: tempFilePath});
+      console.log("✅ File downloaded successfully");
 
     // Read EXIF
     const exifData: any = await exifr.parse(tempFilePath).catch(() => null);
@@ -131,6 +152,15 @@ export const processUpload = onObjectFinalized(
 
     // Delete original upload
     await bucket.file(filePath).delete({ignoreNotFound: true});
+    
+    console.log("✅ processUpload completed successfully");
+    } catch (error: any) {
+      console.error("❌ Error in processUpload:", error);
+      console.error("Error stack:", error.stack);
+      console.error("Error name:", error.name);
+      console.error("Error message:", error.message);
+      throw error;
+    }
   }
 );
 

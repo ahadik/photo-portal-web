@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "lastUpdated": "2024-12-15T10:30:00Z",
+  "photos": [
+    {
+      "id": "a1b2c3d4",
+      "photoUrl": "https://storage.googleapis.com/photoportal-media/photos/a1b2c3d4.jpg",
+      "thumbUrl": "https://storage.googleapis.com/photoportal-media/thumbs/a1b2c3d4.jpg",
+      "width": 2048,
+      "height": 1536,
+      "aspectRatio": 1.333,
+      "orientation": "landscape",
+      "capturedAt": "2024-07-15T14:30:00Z",
+      "uploadedAt": "2024-12-15T10:30:00Z",
+      "location": {
+        "lat": 37.7749,
+        "lon": -122.4194,
+        "name": "San Francisco, California"
+      }
+    },
+    {
+      "id": "e5f6g7h8",
+      "photoUrl": "https://storage.googleapis.com/photoportal-media/photos/e5f6g7h8.jpg",
+      "thumbUrl": "https://storage.googleapis.com/photoportal-media/thumbs/e5f6g7h8.jpg",
+      "width": 1536,
+      "height": 2048,
+      "aspectRatio": 0.75,
+      "orientation": "portrait",
+      "capturedAt": "2024-07-15T15:00:00Z",
+      "uploadedAt": "2024-12-15T10:30:00Z",
+      "location": null
+    }
+  ]
+}
