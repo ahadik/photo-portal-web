@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { signInWithEmailAndPassword } from 'firebase/auth'
+import { useState, useEffect } from 'react'
+import { signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth'
 import { auth } from '../../services/firebase'
 
 function Login() {
@@ -8,16 +8,38 @@ function Login() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
+  // Reset loading state if user signs in (auth state changes)
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user && loading) {
+        console.log('✅ Auth state changed - user signed in, resetting loading state')
+        setLoading(false)
+      }
+    })
+    return () => unsubscribe()
+  }, [loading])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
     setLoading(true)
 
     try {
-      await signInWithEmailAndPassword(auth, email, password)
+      console.log('🔐 Attempting sign in...')
+      // Add timeout to prevent hanging indefinitely
+      const signInPromise = signInWithEmailAndPassword(auth, email, password)
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Sign in request timed out. Please check your network connection and Firebase configuration.')), 10000)
+      })
+
+      const userCredential = await Promise.race([signInPromise, timeoutPromise])
+      console.log('✅ Sign in successful:', userCredential.user.email)
+      // Note: loading will be reset when component unmounts or auth state changes
+      // The auth state change should trigger a redirect in AdminApp
     } catch (err: any) {
-      setError(err.message || 'Failed to sign in')
-    } finally {
+      console.error('❌ Sign in error:', err)
+      const errorMessage = err.message || 'Failed to sign in'
+      setError(errorMessage)
       setLoading(false)
     }
   }
