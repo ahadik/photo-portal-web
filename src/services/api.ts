@@ -1,5 +1,5 @@
-import { ref, getBytes } from 'firebase/storage';
-import { dataStorage } from './firebase';
+import { ref, getBytes, getDownloadURL } from 'firebase/storage';
+import { dataStorage, mediaStorage } from './firebase';
 import { PhotosJson, MessagesJson } from '../types';
 
 export async function fetchPhotosIndex(): Promise<PhotosJson> {
@@ -57,5 +57,47 @@ export async function fetchMessagesIndex(): Promise<MessagesJson> {
       };
     }
     throw new Error(`Failed to fetch messages: ${error.message}`);
+  }
+}
+
+/**
+ * Get an authenticated download URL for a photo using Firebase Storage SDK.
+ * This function handles authentication automatically and works with both
+ * emulator and production environments.
+ * @param photoId - The photo ID (without file extension)
+ * @returns Promise resolving to the authenticated download URL
+ */
+export async function getPhotoDownloadUrl(photoId: string): Promise<string> {
+  try {
+    const photoRef = ref(mediaStorage, `photos/${photoId}.jpg`);
+    return await getDownloadURL(photoRef);
+  } catch (error: any) {
+    if (
+      error.code === 'storage/object-not-found' ||
+      error.code === 'storage/unauthorized'
+    ) {
+      throw new Error(`Photo not found or access denied: ${photoId}`);
+    }
+    throw new Error(`Failed to get photo URL: ${error.message}`);
+  }
+}
+
+/**
+ * Get an authenticated download URL for a thumbnail using Firebase Storage SDK.
+ * @param photoId - The photo ID (without file extension)
+ * @returns Promise resolving to the authenticated download URL
+ */
+export async function getThumbnailDownloadUrl(photoId: string): Promise<string> {
+  try {
+    const thumbRef = ref(mediaStorage, `thumbs/${photoId}.jpg`);
+    return await getDownloadURL(thumbRef);
+  } catch (error: any) {
+    if (
+      error.code === 'storage/object-not-found' ||
+      error.code === 'storage/unauthorized'
+    ) {
+      throw new Error(`Thumbnail not found or access denied: ${photoId}`);
+    }
+    throw new Error(`Failed to get thumbnail URL: ${error.message}`);
   }
 }
