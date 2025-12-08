@@ -34,15 +34,16 @@ function MessageComposer() {
       setMessageText('')
       setSelectedPhotoId('')
       setTimeout(() => setSuccess(false), 3000)
-    } catch (err: any) {
-      setError(err.message || 'Failed to send message')
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to send message'
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={(e) => { void handleSubmit(e) }}>
       <div style={{ marginBottom: '1rem' }}>
         <label htmlFor="photo-select" style={{ display: 'block', marginBottom: '0.5rem' }}>
           Select Photo

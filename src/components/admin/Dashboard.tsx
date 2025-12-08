@@ -12,7 +12,7 @@ function Dashboard() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
         <h1>Photo Portal Admin Dashboard</h1>
-        <button onClick={handleSignOut} style={{ padding: '0.5rem 1rem' }}>
+        <button onClick={() => { void handleSignOut() }} style={{ padding: '0.5rem 1rem' }}>
           Sign Out
         </button>
       </div>

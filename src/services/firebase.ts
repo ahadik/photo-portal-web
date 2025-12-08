@@ -25,8 +25,9 @@ function createStorageInstance(bucket?: string) {
     try {
       connectStorageEmulator(instance, 'localhost', 9199);
       console.log(`✅ Connected storage${bucket ? ` (${bucket})` : ' (default)'} to emulator`);
-    } catch (e: any) {
-      if (e?.message?.includes('already been called') || e?.message?.includes('already connected')) {
+    } catch (e: unknown) {
+      const error = e as { message?: string };
+      if (error?.message?.includes('already been called') || error?.message?.includes('already connected')) {
         console.log(`ℹ️  Storage${bucket ? ` (${bucket})` : ' (default)'} already connected to emulator`);
       } else {
         console.warn(`⚠️  Failed to connect storage${bucket ? ` (${bucket})` : ' (default)'} to emulator:`, e);
@@ -50,8 +51,9 @@ if (import.meta.env.DEV) {
   try {
     connectFunctionsEmulator(functions, 'localhost', 5001);
     console.log('✅ Connected functions to emulator');
-  } catch (e: any) {
-    if (e?.message?.includes('already been called') || e?.message?.includes('already connected')) {
+  } catch (e: unknown) {
+    const error = e as { message?: string };
+    if (error?.message?.includes('already been called') || error?.message?.includes('already connected')) {
       console.log('ℹ️  Functions already connected to emulator');
     } else {
       console.warn('⚠️  Failed to connect functions to emulator:', e);

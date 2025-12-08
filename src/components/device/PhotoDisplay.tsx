@@ -25,23 +25,26 @@ export default function PhotoDisplay({ photo, isLoading }: PhotoDisplayProps) {
     }
 
     let cancelled = false
+    const photoId = photo.id // Capture photo ID when we know photo is not null
 
     async function loadImageUrl() {
       try {
         setImageError(null)
-        const url = await getPhotoDownloadUrl(photo.id)
+        const url = await getPhotoDownloadUrl(photoId)
         if (!cancelled) {
           setImageUrl(url)
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Failed to load photo URL:', error)
         if (!cancelled) {
-          setImageError(error.message || 'Failed to load image')
+          const errorMessage =
+            error instanceof Error ? error.message : 'Failed to load image'
+          setImageError(errorMessage)
         }
       }
     }
 
-    loadImageUrl()
+    void loadImageUrl()
 
     return () => {
       cancelled = true

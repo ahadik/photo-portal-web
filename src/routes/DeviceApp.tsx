@@ -20,6 +20,7 @@ function DeviceApp() {
   const [messages, setMessages] = useState<MessageEntry[]>([])
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false)
   const [activeMessage, setActiveMessage] = useState<MessageEntry | null>(null)
+  const [showMetadata, setShowMetadata] = useState(false)
   const [showVirtualControls, setShowVirtualControls] = useState(false)
   const slideshowRef = useRef<SlideshowRef>(null)
   const messageTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -88,11 +89,11 @@ function DeviceApp() {
     }
 
     // Load photos immediately
-    loadPhotos()
+    void loadPhotos()
 
     // Set up polling interval (check for new content every minute)
     const intervalId = setInterval(() => {
-      loadPhotos()
+      void loadPhotos()
     }, config.photoSyncInterval)
 
     // Cleanup interval on unmount or when user changes
@@ -129,11 +130,11 @@ function DeviceApp() {
     }
 
     // Load messages immediately
-    loadMessages()
+    void loadMessages()
 
     // Set up polling interval for messages (check every 30 seconds)
     const intervalId = setInterval(() => {
-      loadMessages()
+      void loadMessages()
     }, config.messageSyncInterval)
 
     return () => {
@@ -219,6 +220,11 @@ function DeviceApp() {
     }
   }, [])
 
+  // Handle metadata toggle
+  const handleMetadataToggle = () => {
+    setShowMetadata((prev) => !prev)
+  }
+
   // Handle virtual button events
   const handleVirtualButtonEvent = (event: VirtualButtonEvent) => {
     console.log('Virtual button event:', event)
@@ -230,10 +236,10 @@ function DeviceApp() {
         // Will be handled by map view toggle
         break
       case 'METADATA_TOGGLE':
-        // Will be handled by metadata overlay toggle
+        void handleMetadataToggle()
         break
       case 'MESSAGE_BUTTON':
-        handleMessageButton()
+        void handleMessageButton()
         break
     }
   }
@@ -304,6 +310,7 @@ function DeviceApp() {
               ref={slideshowRef}
               photos={photos}
               messageOverlay={activeMessage ? <MessageOverlay message={activeMessage} /> : null}
+              showMetadata={showMetadata}
             />
           )
         } />
@@ -315,6 +322,7 @@ function DeviceApp() {
           onEvent={handleVirtualButtonEvent}
           onClose={() => setShowVirtualControls(false)}
           hasUnreadMessages={hasUnreadMessages}
+          showMetadata={showMetadata}
         />
       )}
     </div>

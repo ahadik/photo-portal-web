@@ -10,15 +10,21 @@ interface VirtualButtonOverlayProps {
   onEvent: (event: VirtualButtonEvent) => void
   onClose: () => void
   hasUnreadMessages?: boolean
+  showMetadata?: boolean
 }
 
 /**
  * VirtualButtonOverlay provides simulated hardware controls for testing
  * when GPIO hardware is not available. Displays as a thin chrome bar at the bottom.
  */
-export default function VirtualButtonOverlay({ onEvent, onClose, hasUnreadMessages = false }: VirtualButtonOverlayProps) {
+export default function VirtualButtonOverlay({ onEvent, onClose, hasUnreadMessages = false, showMetadata = false }: VirtualButtonOverlayProps) {
   const [mapToggleState, setMapToggleState] = useState<'ON' | 'OFF'>('OFF')
-  const [metadataToggleState, setMetadataToggleState] = useState(false)
+  const [metadataToggleState, setMetadataToggleState] = useState(showMetadata)
+
+  // Sync metadata toggle state with prop
+  useEffect(() => {
+    setMetadataToggleState(showMetadata)
+  }, [showMetadata])
 
   // Close overlay when Escape is pressed
   useEffect(() => {

@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react'
 import { PhotoEntry } from '../../types'
 import PhotoDisplay from './PhotoDisplay'
+import MetadataOverlay from './MetadataOverlay'
 
 interface SlideshowProps {
   photos: PhotoEntry[]
   slideInterval?: number // in milliseconds, default 10s
   messageOverlay?: React.ReactNode
+  showMetadata?: boolean
 }
 
 export interface SlideshowRef {
@@ -21,7 +23,7 @@ export interface SlideshowRef {
  * Can be controlled externally via ref.
  */
 const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
-  ({ photos, slideInterval = 10000, messageOverlay }, ref) => {
+  ({ photos, slideInterval = 10000, messageOverlay, showMetadata = false }, ref) => {
     const [currentIndex, setCurrentIndex] = useState(0)
     const [isPaused, setIsPaused] = useState(false)
     const [touchStart, setTouchStart] = useState<number | null>(null)
@@ -72,7 +74,7 @@ const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
     goToNext,
     pause,
     resume,
-  }), [goToPhoto, goToNext])
+  }), [goToPhoto, goToNext, pause, resume])
 
   // Touch event handlers for swipe gestures
   const onTouchStart = (e: React.TouchEvent) => {
@@ -151,8 +153,11 @@ const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
       {/* Message overlay */}
       {messageOverlay}
       
+      {/* Metadata overlay */}
+      {showMetadata && <MetadataOverlay photo={currentPhoto} />}
+      
       {/* Optional: Show current photo index (can be removed or styled differently) */}
-      {photos.length > 1 && (
+      {photos.length > 1 && !showMetadata && (
         <div
           style={{
             position: 'absolute',

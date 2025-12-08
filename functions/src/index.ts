@@ -74,13 +74,15 @@ async function reverseGeocode(
 ): Promise<string | null> {
   if (!MAPBOX_TOKEN) return null;
   const url =
-    `https://api.mapbox.com/search/geocode/v6/reverse?longitude=${lon}8&latitude=${lat}&access_token=${MAPBOX_TOKEN}&limit=1`;
+    "https://api.mapbox.com/search/geocode/v6/reverse?" +
+    `longitude=${lon}8&latitude=${lat}&access_token=${MAPBOX_TOKEN}&limit=1`;
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = (await res.json()) as any;
-    const place = data.features?.[0]?.properties?.place_formatted as string | undefined;
+    const place = data.features?.[0]?.properties?.place_formatted as
+      string | undefined;
     return place ?? null;
   } catch (err) {
     return null;
@@ -92,6 +94,7 @@ export const processUpload = onObjectFinalized(
     bucket: MEDIA_BUCKET,
     memory: "1GiB",
     timeoutSeconds: 120,
+    region: "us-east1",
   },
   async (event) => {
     const filePath = event.data.name;
@@ -109,9 +112,7 @@ export const processUpload = onObjectFinalized(
       await bucket.file(filePath).download({destination: tempFilePath});
 
       // Read EXIF - exifr returns complex EXIF data structure
-      // eslint-disable-next-line import/no-named-as-default-member
       const exifData =
-        // eslint-disable-next-line import/no-named-as-default-member
         await exifr.parse(tempFilePath).catch(() => null) as
         Record<string, unknown> | null;
 
@@ -199,6 +200,7 @@ export const processUpload = onObjectFinalized(
 export const sendMessage = onCall(
   {
     enforceAppCheck: false,
+    region: "us-east1",
   },
   async (request) => {
     if (!request.auth) {

@@ -10,14 +10,15 @@ export async function fetchPhotosIndex(): Promise<PhotosJson> {
     const text = new TextDecoder().decode(bytes);
     const data = JSON.parse(text) as PhotosJson;
     return data;
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Handle 404 / object not found errors gracefully
     // Firebase SDK may return different error codes depending on context
+    const errorObj = error as { code?: string; message?: string };
     if (
-      error.code === 'storage/object-not-found' ||
-      error.code === 'storage/unauthorized' ||
-      error.message?.includes('404') ||
-      error.message?.includes('Not Found')
+      errorObj.code === 'storage/object-not-found' ||
+      errorObj.code === 'storage/unauthorized' ||
+      errorObj.message?.includes('404') ||
+      errorObj.message?.includes('Not Found')
     ) {
       // Return empty structure if file doesn't exist
       console.log('📝 photos.json not found in emulator, returning empty structure');
@@ -27,7 +28,8 @@ export async function fetchPhotosIndex(): Promise<PhotosJson> {
         photos: [],
       };
     }
-    throw new Error(`Failed to fetch photos: ${error.message}`);
+    const errorMessage = errorObj.message ?? 'Unknown error';
+    throw new Error(`Failed to fetch photos: ${errorMessage}`);
   }
 }
 
@@ -39,14 +41,15 @@ export async function fetchMessagesIndex(): Promise<MessagesJson> {
     const text = new TextDecoder().decode(bytes);
     const data = JSON.parse(text) as MessagesJson;
     return data;
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Handle 404 / object not found errors gracefully
     // Firebase SDK may return different error codes depending on context
+    const errorObj = error as { code?: string; message?: string };
     if (
-      error.code === 'storage/object-not-found' ||
-      error.code === 'storage/unauthorized' ||
-      error.message?.includes('404') ||
-      error.message?.includes('Not Found')
+      errorObj.code === 'storage/object-not-found' ||
+      errorObj.code === 'storage/unauthorized' ||
+      errorObj.message?.includes('404') ||
+      errorObj.message?.includes('Not Found')
     ) {
       // Return empty structure if file doesn't exist
       console.log('📝 messages.json not found in emulator, returning empty structure');
@@ -56,7 +59,8 @@ export async function fetchMessagesIndex(): Promise<MessagesJson> {
         messages: [],
       };
     }
-    throw new Error(`Failed to fetch messages: ${error.message}`);
+    const errorMessage = errorObj.message ?? 'Unknown error';
+    throw new Error(`Failed to fetch messages: ${errorMessage}`);
   }
 }
 
@@ -71,14 +75,16 @@ export async function getPhotoDownloadUrl(photoId: string): Promise<string> {
   try {
     const photoRef = ref(mediaStorage, `photos/${photoId}.jpg`);
     return await getDownloadURL(photoRef);
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const errorObj = error as { code?: string; message?: string };
     if (
-      error.code === 'storage/object-not-found' ||
-      error.code === 'storage/unauthorized'
+      errorObj.code === 'storage/object-not-found' ||
+      errorObj.code === 'storage/unauthorized'
     ) {
       throw new Error(`Photo not found or access denied: ${photoId}`);
     }
-    throw new Error(`Failed to get photo URL: ${error.message}`);
+    const errorMessage = errorObj.message ?? 'Unknown error';
+    throw new Error(`Failed to get photo URL: ${errorMessage}`);
   }
 }
 
@@ -91,13 +97,15 @@ export async function getThumbnailDownloadUrl(photoId: string): Promise<string> 
   try {
     const thumbRef = ref(mediaStorage, `thumbs/${photoId}.jpg`);
     return await getDownloadURL(thumbRef);
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const errorObj = error as { code?: string; message?: string };
     if (
-      error.code === 'storage/object-not-found' ||
-      error.code === 'storage/unauthorized'
+      errorObj.code === 'storage/object-not-found' ||
+      errorObj.code === 'storage/unauthorized'
     ) {
       throw new Error(`Thumbnail not found or access denied: ${photoId}`);
     }
-    throw new Error(`Failed to get thumbnail URL: ${error.message}`);
+    const errorMessage = errorObj.message ?? 'Unknown error';
+    throw new Error(`Failed to get thumbnail URL: ${errorMessage}`);
   }
 }

@@ -36,9 +36,9 @@ function Login() {
       console.log('✅ Sign in successful:', userCredential.user.email)
       // Note: loading will be reset when component unmounts or auth state changes
       // The auth state change should trigger a redirect in AdminApp
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('❌ Sign in error:', err)
-      const errorMessage = err.message || 'Failed to sign in'
+      const errorMessage = err instanceof Error ? err.message : 'Failed to sign in'
       setError(errorMessage)
       setLoading(false)
     }
@@ -61,7 +61,7 @@ function Login() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={(e) => { void handleSubmit(e) }}>
         <div style={{ marginBottom: '1rem' }}>
           <label htmlFor="email" style={{ display: 'block', marginBottom: '0.5rem' }}>
             Email
