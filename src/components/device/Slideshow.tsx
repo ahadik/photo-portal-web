@@ -1,21 +1,31 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react'
 import { PhotoEntry } from '../../types'
 import PhotoDisplay from './PhotoDisplay'
 
 interface SlideshowProps {
   photos: PhotoEntry[]
   slideInterval?: number // in milliseconds, default 10s
+  messageOverlay?: React.ReactNode
+}
+
+export interface SlideshowRef {
+  goToPhoto: (photoId: string) => void
+  goToNext: () => void
+  pause: () => void
+  resume: () => void
 }
 
 /**
  * Slideshow component manages photo display with automatic advancement.
  * Supports manual navigation via swipe gestures (left/right).
+ * Can be controlled externally via ref.
  */
-export default function Slideshow({ photos, slideInterval = 10000 }: SlideshowProps) {
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [isPaused, setIsPaused] = useState(false)
-  const [touchStart, setTouchStart] = useState<number | null>(null)
-  const [touchEnd, setTouchEnd] = useState<number | null>(null)
+const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
+  ({ photos, slideInterval = 10000, messageOverlay }, ref) => {
+    const [currentIndex, setCurrentIndex] = useState(0)
+    const [isPaused, setIsPaused] = useState(false)
+    const [touchStart, setTouchStart] = useState<number | null>(null)
+    const [touchEnd, setTouchEnd] = useState<number | null>(null)
 
   // Minimum swipe distance (in pixels) to trigger navigation
   const minSwipeDistance = 50
@@ -40,6 +50,29 @@ export default function Slideshow({ photos, slideInterval = 10000 }: SlideshowPr
   const goToPrevious = useCallback(() => {
     setCurrentIndex((prev) => (prev - 1 + photos.length) % photos.length)
   }, [photos.length])
+
+  const goToPhoto = useCallback((photoId: string) => {
+    const index = photos.findIndex(p => p.id === photoId)
+    if (index >= 0) {
+      setCurrentIndex(index)
+    }
+  }, [photos])
+
+  const pause = useCallback(() => {
+    setIsPaused(true)
+  }, [])
+
+  const resume = useCallback(() => {
+    setIsPaused(false)
+  }, [])
+
+  // Expose methods via ref for external control
+  useImperativeHandle(ref, () => ({
+    goToPhoto,
+    goToNext,
+    pause,
+    resume,
+  }), [goToPhoto, goToNext])
 
   // Touch event handlers for swipe gestures
   const onTouchStart = (e: React.TouchEvent) => {
@@ -115,6 +148,9 @@ export default function Slideshow({ photos, slideInterval = 10000 }: SlideshowPr
     >
       <PhotoDisplay photo={currentPhoto} />
       
+      {/* Message overlay */}
+      {messageOverlay}
+      
       {/* Optional: Show current photo index (can be removed or styled differently) */}
       {photos.length > 1 && (
         <div
@@ -135,4 +171,8 @@ export default function Slideshow({ photos, slideInterval = 10000 }: SlideshowPr
       )}
     </div>
   )
-}
+})
+
+Slideshow.displayName = 'Slideshow'
+
+export default Slideshow
