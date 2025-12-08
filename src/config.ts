@@ -1,7 +1,8 @@
 export const config = {
   mediaBucket: import.meta.env.VITE_MEDIA_BUCKET || 'photo-portal-media',
   dataBucket: import.meta.env.VITE_DATA_BUCKET || 'photo-portal-data',
-  mapboxToken: import.meta.env.VITE_MAPBOX_TOKEN || '',
+  // Note: Mapbox token is NOT included here - it's only used server-side in Firebase Functions
+  // and should never be exposed in client-side code
   photoSyncInterval: 60000, // 60 seconds
   messageSyncInterval: 30000, // 30 seconds
   slideshowInterval: 10000, // 10 seconds

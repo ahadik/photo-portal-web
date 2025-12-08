@@ -7,7 +7,7 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_STORAGE_BUCKET: string
   readonly VITE_FIREBASE_MESSAGING_SENDER_ID: string
   readonly VITE_FIREBASE_APP_ID: string
-  readonly VITE_MAPBOX_TOKEN: string
+  // Note: VITE_MAPBOX_TOKEN is NOT used in client-side code - it's only used server-side in Firebase Functions
   readonly VITE_MEDIA_BUCKET?: string
   readonly VITE_DATA_BUCKET?: string
 }

@@ -23,10 +23,6 @@ env:
       - BUILD
       - RUNTIME
 
-  # Grant access to secrets in Cloud Secret Manager.
-  # See https://firebase.google.com/docs/app-hosting/configure#secret-parameters
-  - variable: VITE_MAPBOX_TOKEN
-    secret: mapbox_api_key
-    availability:
-        - BUILD
-        - RUNTIME
+  # Note: VITE_MAPBOX_TOKEN is NOT needed here - Mapbox token is only used server-side
+  # in Firebase Functions, not in client-side code. It should be configured as an
+  # environment variable for the Functions, not for the frontend build.

@@ -122,18 +122,25 @@ npm run preview
 
 ## Deployment
 
+**Use `firebase deploy` to deploy the web app and other Firebase services.**
+
 ### Deploy everything (Hosting + Functions + Storage Rules)
 
+To deploy all services at once:
 ```bash
 firebase deploy
 ```
 
 ### Deploy specific services
 
-Deploy only the web app:
+**Deploy only the web app:**
 ```bash
 firebase deploy --only hosting
 ```
+
+This command will:
+1. Automatically build the app (configured in `firebase.json`)
+2. Deploy the built files to Firebase Hosting
 
 Deploy only Cloud Functions:
 ```bash
@@ -147,7 +154,7 @@ firebase deploy --only storage
 
 ### Build and deploy in one step
 
-The `firebase.json` is configured to automatically build the app before deploying hosting:
+The `firebase.json` is configured to automatically build the app before deploying hosting, so you don't need to run `npm run build` separately. Simply run:
 ```bash
 firebase deploy --only hosting
 ```
@@ -328,8 +335,8 @@ env:
 
 1. Make changes to the code
 2. Test locally with `npm run dev`
-3. Build with `npm run build` to verify production build
-4. Deploy with `firebase deploy --only hosting` (or `--only functions` for Functions)
+3. Build with `npm run build` to verify production build (optional - `firebase deploy` will build automatically)
+4. Deploy the web app with `firebase deploy --only hosting` (or use `firebase deploy --only functions` for Functions)
 
 ## Troubleshooting
 
