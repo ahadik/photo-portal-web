@@ -44,7 +44,7 @@ export const storage = createStorageInstance(); // Default bucket
 export const mediaStorage = createStorageInstance(config.mediaBucket);
 export const dataStorage = createStorageInstance(config.dataBucket);
 
-export const functions = getFunctions(app);
+export const functions = getFunctions(app, 'us-east1');
 
 // Connect Functions emulator
 if (import.meta.env.DEV) {

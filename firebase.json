@@ -21,6 +21,7 @@
     }
   ],
   "hosting": {
+    "region": "us-east1",
     "public": "public",
     "ignore": [
       "firebase.json",
@@ -37,18 +38,6 @@
   "storage": {
     "rules": "storage.rules",
     "bucket": "photo-portal-480304.firebasestorage.app"
-  },
-  "apphosting": {
-    "backendId": "photo-portal-web",
-    "rootDir": "/",
-    "ignore": [
-      "node_modules",
-      ".git",
-      "firebase-debug.log",
-      "firebase-debug.*.log",
-      "functions"
-    ],
-    "alwaysDeployFromSource": false
   },
   "emulators": {
     "functions": {

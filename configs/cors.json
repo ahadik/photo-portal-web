@@ -11,7 +11,7 @@
       "http://localhost:8080",
       "https://photo-portal-480304.web.app"
     ],
-    "method": ["GET", "HEAD", "OPTIONS"],
+    "method": ["GET", "POST", "HEAD", "OPTIONS"],
     "responseHeader": ["Content-Type", "Content-Length"],
     "maxAgeSeconds": 3600
   }
