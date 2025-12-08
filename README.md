@@ -175,6 +175,7 @@ photo-portal-web/
 │   └── cors.json         # CORS config (for reference, not used with Firebase Storage)
 ├── sample_data/          # Sample JSON files for testing
 ├── firebase.json         # Firebase project configuration
+├── apphosting.yaml       # Firebase App Hosting configuration (env vars & secrets)
 ├── storage.rules         # Firebase Storage security rules
 ├── vite.config.ts        # Vite build configuration
 └── package.json          # Node.js dependencies and scripts
@@ -221,6 +222,107 @@ firebase functions:secrets:set MAPBOX_TOKEN
 ```
 
 Access in Functions code via `process.env.MAPBOX_TOKEN`.
+
+### Firebase App Hosting (`apphosting.yaml`)
+
+The `apphosting.yaml` file configures environment variables and secrets for Firebase App Hosting deployments. This file is used when deploying to Firebase App Hosting (Cloud Run backend).
+
+#### Environment Variables
+
+To define plain environment variables, add entries to the `env` section:
+
+```yaml
+env:
+  - variable: VITE_MEDIA_BUCKET
+    value: photo-portal-media
+    availability:
+      - BUILD
+      - RUNTIME
+```
+
+**Key points:**
+- `variable`: The name of the environment variable (must match what your code expects)
+- `value`: The literal value to use (for non-sensitive configuration)
+- `availability`: When the variable is available:
+  - `BUILD`: Available during the build process (e.g., for Vite build-time configuration)
+  - `RUNTIME`: Available when the application is running
+
+#### Secrets
+
+For sensitive values (API keys, tokens, etc.), use secrets stored in Google Cloud Secret Manager:
+
+```yaml
+env:
+  - variable: VITE_MAPBOX_TOKEN
+    secret: mapbox_api_key
+    availability:
+      - BUILD
+      - RUNTIME
+```
+
+**Key points:**
+- `variable`: The environment variable name your code will access
+- `secret`: The name of the secret in Google Cloud Secret Manager (not the secret value itself)
+- `availability`: Same as above - specify when the secret should be available
+
+**To add a new secret:**
+
+1. **Create the secret in Google Cloud Secret Manager:**
+   ```bash
+   # Using gcloud CLI
+   echo -n "your-secret-value" | gcloud secrets create your_secret_name --data-file=-
+   
+   # Or using Firebase Console: Go to Secret Manager in Google Cloud Console
+   ```
+
+2. **Grant App Hosting access to the secret:**
+   ```bash
+   # Replace SECRET_NAME and BACKEND_NAME with your values
+   firebase apphosting:secrets:grantaccess SECRET_NAME --backend BACKEND_NAME
+   
+   # Example:
+   firebase apphosting:secrets:grantaccess mapbox_api_key --backend photo-portal-web
+   ```
+
+3. **Add the secret to `apphosting.yaml`:**
+   ```yaml
+   env:
+     - variable: YOUR_ENV_VAR_NAME
+       secret: your_secret_name
+       availability:
+         - BUILD
+         - RUNTIME
+   ```
+
+**Adding more environment variables or secrets:**
+
+1. **For plain values:** Add a new entry to the `env` array with `variable` and `value` fields
+2. **For secrets:** Create the secret in Secret Manager first, then add an entry with `variable` and `secret` fields
+3. **Always specify `availability`** - include both `BUILD` and `RUNTIME` if the variable is needed during both phases
+
+**Example - Adding a new environment variable:**
+```yaml
+env:
+  # ... existing entries ...
+  - variable: VITE_API_ENDPOINT
+    value: https://api.example.com
+    availability:
+      - BUILD
+      - RUNTIME
+```
+
+**Example - Adding a new secret:**
+```yaml
+env:
+  # ... existing entries ...
+  - variable: VITE_STRIPE_KEY
+    secret: stripe_api_key
+    availability:
+      - BUILD
+      - RUNTIME
+```
+
+**Note:** After modifying `apphosting.yaml`, redeploy your app for changes to take effect. The variables defined here are available in your application code via `import.meta.env.VITE_*` (for Vite apps).
 
 ## Development Workflow
 
