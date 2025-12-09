@@ -29,15 +29,12 @@ const storage = new Storage();
 
 const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
 
-/**
- * Determines photo orientation based on aspect ratio.
- * @param {number} aspectRatio - The width/height ratio of the image.
- * @return {"landscape" | "portrait"} "landscape" if aspectRatio >= 1,
- *     "portrait" otherwise.
- */
-function orientationFromAspect(aspectRatio: number): "landscape" | "portrait" {
-  return aspectRatio >= 1 ? "landscape" : "portrait";
-}
+// Lock file path in Cloud Storage
+const LOCK_FILE_PATH = ".photos.json.lock";
+const LOCK_CHECK_INTERVAL = 200; // Check every 200ms
+const MAX_LOCK_WAIT_TIME = 30000; // Maximum 30 seconds to wait for lock
+const LOCK_TIMEOUT = 60000; // Lock expires after 60 seconds (safety mechanism)
+
 
 /**
  * Generate the correct Storage URL based on environment (emulator vs
@@ -86,6 +83,203 @@ async function reverseGeocode(
     return place ?? null;
   } catch (err) {
     return null;
+  }
+}
+
+/**
+ * Checks if photos.json is currently locked by checking for lock file.
+ * @return {Promise<boolean>} True if locked, false otherwise.
+ */
+async function isPhotosJsonLocked(): Promise<boolean> {
+  const lockFile = storage.bucket(DATA_BUCKET).file(LOCK_FILE_PATH);
+  const [exists] = await lockFile.exists();
+
+  if (!exists) {
+    return false;
+  }
+
+  // Check if lock has expired (safety mechanism)
+  // getMetadata() can throw for network/permission errors, so we catch those
+  try {
+    const [metadata] = await lockFile.getMetadata();
+    const timeCreated = metadata.timeCreated;
+    if (!timeCreated) {
+      return false;
+    }
+    const created = new Date(timeCreated).getTime();
+    const now = Date.now();
+
+    if (now - created > LOCK_TIMEOUT) {
+      console.warn("⚠️ Lock expired, releasing it");
+      await unlockPhotosJson();
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    // If we can't get metadata (network error, permission issue, etc.),
+    // assume not locked to avoid deadlock
+    console.error("Error getting lock metadata:", error);
+    return false;
+  }
+}
+
+/**
+ * Waits for photos.json to be unlocked.
+ * @return {Promise<void>}
+ */
+async function waitForUnlock(): Promise<void> {
+  const startTime = Date.now();
+
+  while (await isPhotosJsonLocked()) {
+    if (Date.now() - startTime > MAX_LOCK_WAIT_TIME) {
+      throw new Error("Timeout waiting for photos.json lock");
+    }
+
+    // Wait before checking again
+    await new Promise((resolve) => setTimeout(resolve, LOCK_CHECK_INTERVAL));
+  }
+}
+
+/**
+ * Acquires the lock for photos.json by creating a lock file.
+ * @param {string} lockHolderId - Unique ID for the process holding the lock.
+ * @return {Promise<boolean>} True if lock was acquired, false otherwise.
+ */
+async function lockPhotosJson(lockHolderId: string): Promise<boolean> {
+  const lockFile = storage.bucket(DATA_BUCKET).file(LOCK_FILE_PATH);
+
+  // Try to create the lock file atomically - will fail if it already exists
+  try {
+    await lockFile.save(JSON.stringify({
+      lockedBy: lockHolderId,
+      lockedAt: new Date().toISOString(),
+    }), {
+      metadata: {
+        contentType: "application/json",
+      },
+      // ifGenerationMatch: 0 means "only create if file doesn't exist"
+      // This makes the operation atomic - if file exists, it will throw 412
+      preconditionOpts: {
+        ifGenerationMatch: 0,
+      },
+    });
+    return true;
+  } catch (error: unknown) {
+    // If file already exists (412 PreconditionFailed), check if lock expired
+    const err = error as {code?: number | string};
+    if (err.code === 412 || err.code === "PreconditionFailed") {
+      // File exists, check if expired
+      const [exists] = await lockFile.exists();
+      if (exists) {
+        try {
+          const [metadata] = await lockFile.getMetadata();
+          const timeCreated = metadata.timeCreated;
+          if (timeCreated) {
+            const created = new Date(timeCreated).getTime();
+            if (Date.now() - created > LOCK_TIMEOUT) {
+              // Lock expired, delete it and recursively try again
+              // This handles race conditions where multiple processes
+              // detect expired lock simultaneously
+              await lockFile.delete().catch(() => {});
+              // Recursive call - will use ifGenerationMatch: 0 again
+              return await lockPhotosJson(lockHolderId);
+            }
+          }
+        } catch {
+          // If we can't get metadata, assume lock is valid
+          return false;
+        }
+      }
+    }
+    return false;
+  }
+}
+
+/**
+ * Releases the lock for photos.json by deleting the lock file.
+ * @return {Promise<void>}
+ */
+async function unlockPhotosJson(): Promise<void> {
+  try {
+    const lockFile = storage.bucket(DATA_BUCKET).file(LOCK_FILE_PATH);
+    await lockFile.delete().catch(() => {
+      // Ignore errors if file doesn't exist
+    });
+  } catch (error) {
+    console.error("Error releasing lock:", error);
+  }
+}
+
+/**
+ * Writes a photo entry to photos.json using the locking mechanism.
+ * @param {PhotoEntry} newPhotoEntry - The new photo entry to add.
+ * @return {Promise<void>}
+ */
+async function writePhotoToJsonWithLock(
+  newPhotoEntry: PhotoEntry
+): Promise<void> {
+  const lockHolderId = uuidv4();
+
+  // Step 1: Check if locked, wait if needed
+  if (await isPhotosJsonLocked()) {
+    await waitForUnlock();
+  }
+
+  // Step 2: Acquire lock
+  let lockAcquired = false;
+  let attempts = 0;
+  const maxAttempts = 10;
+
+  while (!lockAcquired && attempts < maxAttempts) {
+    lockAcquired = await lockPhotosJson(lockHolderId);
+    if (!lockAcquired) {
+      attempts++;
+      await new Promise((resolve) => setTimeout(resolve, LOCK_CHECK_INTERVAL));
+      // Re-check if still locked
+      if (await isPhotosJsonLocked()) {
+        await waitForUnlock();
+      }
+    }
+  }
+
+  if (!lockAcquired) {
+    throw new Error(
+      "Failed to acquire lock for photos.json after multiple attempts"
+    );
+  }
+
+  try {
+    // Step 3: Retrieve fresh photos.json from store
+    const now = new Date().toISOString();
+    const photosJson = await readJsonFromBucket<PhotosJson>(
+      DATA_BUCKET,
+      "photos.json",
+      {
+        version: 1,
+        lastUpdated: now,
+        photos: [],
+      }
+    );
+
+    // Step 4: Update with new photo entry
+    const existingIds = new Set(photosJson.photos.map((p) => p.id));
+
+    // Add the new photo entry if not already present
+    if (!existingIds.has(newPhotoEntry.id)) {
+      photosJson.photos.push(newPhotoEntry);
+      photosJson.lastUpdated = now;
+
+      // Step 5: Write the file back
+      await writeJsonToBucket(DATA_BUCKET, "photos.json", photosJson);
+
+      console.log("✅ Successfully wrote photo to photos.json");
+    } else {
+      console.log("ℹ️ Photo already exists in photos.json");
+    }
+  } finally {
+    // Step 6: Unlock the file in state
+    await unlockPhotosJson();
   }
 }
 
@@ -164,7 +358,6 @@ export const processUpload = onObjectFinalized(
         width: width || 0,
         height: height || 0,
         aspectRatio,
-        orientation: orientationFromAspect(aspectRatio),
         capturedAt,
         uploadedAt: now,
         location:
@@ -173,20 +366,8 @@ export const processUpload = onObjectFinalized(
             null,
       };
 
-      const photosJson = await readJsonFromBucket<PhotosJson>(
-        DATA_BUCKET,
-        "photos.json",
-        {
-          version: 1,
-          lastUpdated: now,
-          photos: [],
-        }
-      );
-
-      photosJson.photos.push(photoEntry);
-      photosJson.lastUpdated = now;
-
-      await writeJsonToBucket(DATA_BUCKET, "photos.json", photosJson);
+      // Write to photos.json using lock mechanism
+      await writePhotoToJsonWithLock(photoEntry);
 
       // Delete original upload
       await bucket.file(filePath).delete({ignoreNotFound: true});

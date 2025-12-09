@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useImperativeHandle, forwardRef } fro
 import { PhotoEntry } from '../../types'
 import PhotoDisplay from './PhotoDisplay'
 import MetadataOverlay from './MetadataOverlay'
+import { getScreenOrientation, ScreenOrientation } from '../../utils/orientation'
+import { createCompositions, PhotoComposition } from '../../utils/compositions'
 
 interface SlideshowProps {
   photos: PhotoEntry[]
@@ -21,6 +23,7 @@ export interface SlideshowRef {
  * Slideshow component manages photo display with automatic advancement.
  * Supports manual navigation via swipe gestures (left/right).
  * Can be controlled externally via ref.
+ * Detects screen orientation and creates compositions accordingly.
  */
 const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
   ({ photos, slideInterval = 10000, messageOverlay, showMetadata = false }, ref) => {
@@ -28,37 +31,72 @@ const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
     const [isPaused, setIsPaused] = useState(false)
     const [touchStart, setTouchStart] = useState<number | null>(null)
     const [touchEnd, setTouchEnd] = useState<number | null>(null)
+    const [screenOrientation, setScreenOrientation] = useState<ScreenOrientation>('square')
+    const [compositions, setCompositions] = useState<PhotoComposition[]>([])
 
   // Minimum swipe distance (in pixels) to trigger navigation
   const minSwipeDistance = 50
 
-  const currentPhoto = photos.length > 0 ? photos[currentIndex] : null
+  // Detect screen orientation and update compositions when viewport changes
+  useEffect(() => {
+    const updateOrientation = () => {
+      const width = window.innerWidth
+      const height = window.innerHeight
+      const orientation = getScreenOrientation(width, height)
+      setScreenOrientation(orientation)
+      
+      // Create compositions based on current screen orientation
+      const newCompositions = createCompositions(photos, orientation)
+      setCompositions(newCompositions)
+    }
+
+    // Initial calculation
+    updateOrientation()
+
+    // Update on resize
+    window.addEventListener('resize', updateOrientation)
+    return () => window.removeEventListener('resize', updateOrientation)
+  }, [photos])
+
+  // Reset to first composition if current index is out of bounds when compositions change
+  useEffect(() => {
+    if (currentIndex >= compositions.length && compositions.length > 0) {
+      setCurrentIndex(0)
+    }
+  }, [compositions.length, currentIndex])
+
+  const currentComposition = compositions.length > 0 ? compositions[currentIndex] : null
+  // For metadata overlay, get the first photo from the composition
+  const currentPhoto = currentComposition?.photos[0] || null
 
   // Auto-advance slideshow
   useEffect(() => {
-    if (photos.length === 0 || isPaused) return
+    if (compositions.length === 0 || isPaused) return
 
     const timer = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % photos.length)
+      setCurrentIndex((prev) => (prev + 1) % compositions.length)
     }, slideInterval)
 
     return () => clearInterval(timer)
-  }, [photos.length, isPaused, slideInterval])
+  }, [compositions.length, isPaused, slideInterval])
 
   const goToNext = useCallback(() => {
-    setCurrentIndex((prev) => (prev + 1) % photos.length)
-  }, [photos.length])
+    setCurrentIndex((prev) => (prev + 1) % compositions.length)
+  }, [compositions.length])
 
   const goToPrevious = useCallback(() => {
-    setCurrentIndex((prev) => (prev - 1 + photos.length) % photos.length)
-  }, [photos.length])
+    setCurrentIndex((prev) => (prev - 1 + compositions.length) % compositions.length)
+  }, [compositions.length])
 
   const goToPhoto = useCallback((photoId: string) => {
-    const index = photos.findIndex(p => p.id === photoId)
+    // Find the composition that contains this photo
+    const index = compositions.findIndex(comp => 
+      comp.photos.some(p => p.id === photoId)
+    )
     if (index >= 0) {
       setCurrentIndex(index)
     }
-  }, [photos])
+  }, [compositions])
 
   const pause = useCallback(() => {
     setIsPaused(true)
@@ -117,7 +155,7 @@ const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
     return () => window.removeEventListener('keydown', handleKeyPress)
   }, [goToNext, goToPrevious])
 
-  if (photos.length === 0) {
+  if (compositions.length === 0) {
     return (
       <div
         style={{
@@ -148,7 +186,7 @@ const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      <PhotoDisplay photo={currentPhoto} />
+      <PhotoDisplay composition={currentComposition} />
       
       {/* Message overlay */}
       {messageOverlay}
@@ -156,8 +194,8 @@ const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
       {/* Metadata overlay */}
       {showMetadata && <MetadataOverlay photo={currentPhoto} />}
       
-      {/* Optional: Show current photo index (can be removed or styled differently) */}
-      {photos.length > 1 && !showMetadata && (
+      {/* Optional: Show current composition index (can be removed or styled differently) */}
+      {compositions.length > 1 && !showMetadata && (
         <div
           style={{
             position: 'absolute',
@@ -171,7 +209,7 @@ const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
             fontSize: '0.875rem',
           }}
         >
-          {currentIndex + 1} / {photos.length}
+          {currentIndex + 1} / {compositions.length}
         </div>
       )}
     </div>

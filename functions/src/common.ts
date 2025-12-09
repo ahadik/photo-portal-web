@@ -13,7 +13,6 @@ export interface PhotoEntry {
   width: number;
   height: number;
   aspectRatio: number;
-  orientation: "landscape" | "portrait";
   capturedAt: string | null;
   uploadedAt: string;
   location: LocationInfo | null;

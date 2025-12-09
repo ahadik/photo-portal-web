@@ -1,22 +1,20 @@
 import { useState, useEffect } from 'react'
 import { PhotoEntry } from '../../types'
 import { getPhotoDownloadUrl } from '../../services/api'
+import { PhotoComposition } from '../../utils/compositions'
 
 interface PhotoDisplayProps {
-  photo: PhotoEntry | null
+  composition: PhotoComposition | null
   isLoading?: boolean
 }
 
 /**
- * PhotoDisplay component renders a single photo with proper fill behavior.
- * Uses CSS object-fit: cover and centering to satisfy "Photo Fill" requirement.
- * Uses Firebase Storage SDK to get authenticated download URLs.
+ * Hook to load image URLs for photos
  */
-export default function PhotoDisplay({ photo, isLoading }: PhotoDisplayProps) {
+function usePhotoUrl(photo: PhotoEntry | null): { url: string | null; error: string | null } {
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
 
-  // Fetch authenticated download URL when photo changes
   useEffect(() => {
     if (!photo) {
       setImageUrl(null)
@@ -25,7 +23,7 @@ export default function PhotoDisplay({ photo, isLoading }: PhotoDisplayProps) {
     }
 
     let cancelled = false
-    const photoId = photo.id // Capture photo ID when we know photo is not null
+    const photoId = photo.id
 
     async function loadImageUrl() {
       try {
@@ -51,24 +49,22 @@ export default function PhotoDisplay({ photo, isLoading }: PhotoDisplayProps) {
     }
   }, [photo])
 
-  if (isLoading || !photo) {
-    return (
-      <div
-        style={{
-          width: '100%',
-          height: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: '#000',
-        }}
-      >
-        <div style={{ color: '#fff', fontSize: '1.5rem' }}>Loading...</div>
-      </div>
-    )
-  }
+  return { url: imageUrl, error: imageError }
+}
 
-  if (imageError) {
+/**
+ * SinglePhotoDisplay renders a single photo with different display modes
+ */
+function SinglePhotoDisplay({ 
+  photo, 
+  displayMode 
+}: { 
+  photo: PhotoEntry
+  displayMode: 'full-bleed' | 'centered'
+}) {
+  const { url, error } = usePhotoUrl(photo)
+
+  if (error) {
     return (
       <div
         style={{
@@ -84,12 +80,12 @@ export default function PhotoDisplay({ photo, isLoading }: PhotoDisplayProps) {
         <div style={{ color: '#fff', fontSize: '1.5rem', marginBottom: '1rem' }}>
           Error loading photo
         </div>
-        <div style={{ color: '#888', fontSize: '0.875rem' }}>{imageError}</div>
+        <div style={{ color: '#888', fontSize: '0.875rem' }}>{error}</div>
       </div>
     )
   }
 
-  if (!imageUrl) {
+  if (!url) {
     return (
       <div
         style={{
@@ -106,6 +102,35 @@ export default function PhotoDisplay({ photo, isLoading }: PhotoDisplayProps) {
     )
   }
 
+  if (displayMode === 'full-bleed') {
+    return (
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#000',
+          overflow: 'hidden',
+        }}
+      >
+        <img
+          src={url}
+          alt={photo.location?.name || 'Photo'}
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            objectPosition: 'center',
+          }}
+          loading="eager"
+        />
+      </div>
+    )
+  }
+
+  // centered mode: photo is centered with margins so full photo is visible
   return (
     <div
       style={{
@@ -119,19 +144,193 @@ export default function PhotoDisplay({ photo, isLoading }: PhotoDisplayProps) {
       }}
     >
       <img
-        src={imageUrl}
+        src={url}
         alt={photo.location?.name || 'Photo'}
         style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
+          maxWidth: '100%',
+          maxHeight: '100%',
+          objectFit: 'contain',
           objectPosition: 'center',
         }}
         loading="eager"
-        onError={() => {
-          setImageError('Failed to display image')
-        }}
       />
     </div>
+  )
+}
+
+/**
+ * PairPhotoDisplay renders two photos side-by-side or stacked
+ */
+function PairPhotoDisplay({ 
+  photos, 
+  displayMode 
+}: { 
+  photos: [PhotoEntry, PhotoEntry]
+  displayMode: 'side-by-side' | 'stacked'
+}) {
+  const photo1Url = usePhotoUrl(photos[0])
+  const photo2Url = usePhotoUrl(photos[1])
+
+  const isLoading = !photo1Url.url || !photo2Url.url
+  const hasError = photo1Url.error || photo2Url.error
+
+  if (hasError) {
+    return (
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#000',
+          flexDirection: 'column',
+        }}
+      >
+        <div style={{ color: '#fff', fontSize: '1.5rem', marginBottom: '1rem' }}>
+          Error loading photos
+        </div>
+      </div>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#000',
+        }}
+      >
+        <div style={{ color: '#fff', fontSize: '1.5rem' }}>Loading images...</div>
+      </div>
+    )
+  }
+
+  if (displayMode === 'side-by-side') {
+    return (
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'row',
+          backgroundColor: '#000',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ width: '50%', height: '100%', overflow: 'hidden' }}>
+          <img
+            src={photo1Url.url!}
+            alt={photos[0].location?.name || 'Photo 1'}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              objectPosition: 'center',
+            }}
+            loading="eager"
+          />
+        </div>
+        <div style={{ width: '50%', height: '100%', overflow: 'hidden' }}>
+          <img
+            src={photo2Url.url!}
+            alt={photos[1].location?.name || 'Photo 2'}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              objectPosition: 'center',
+            }}
+            loading="eager"
+          />
+        </div>
+      </div>
+    )
+  }
+
+  // stacked mode
+  return (
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        backgroundColor: '#000',
+        overflow: 'hidden',
+      }}
+    >
+      <div style={{ width: '100%', height: '50%', overflow: 'hidden' }}>
+        <img
+          src={photo1Url.url!}
+          alt={photos[0].location?.name || 'Photo 1'}
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            objectPosition: 'center',
+          }}
+          loading="eager"
+        />
+      </div>
+      <div style={{ width: '100%', height: '50%', overflow: 'hidden' }}>
+        <img
+          src={photo2Url.url!}
+          alt={photos[1].location?.name || 'Photo 2'}
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            objectPosition: 'center',
+          }}
+          loading="eager"
+        />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * PhotoDisplay component renders a photo composition (single or pair) with proper display behavior.
+ * Uses Firebase Storage SDK to get authenticated download URLs.
+ */
+export default function PhotoDisplay({ composition, isLoading }: PhotoDisplayProps) {
+  if (isLoading || !composition) {
+    return (
+      <div
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#000',
+        }}
+      >
+        <div style={{ color: '#fff', fontSize: '1.5rem' }}>Loading...</div>
+      </div>
+    )
+  }
+
+  if (composition.type === 'single') {
+    return (
+      <SinglePhotoDisplay 
+        photo={composition.photos[0]} 
+        displayMode={composition.displayMode as 'full-bleed' | 'centered'}
+      />
+    )
+  }
+
+  // composition.type === 'pair'
+  return (
+    <PairPhotoDisplay 
+      photos={[composition.photos[0], composition.photos[1]] as [PhotoEntry, PhotoEntry]}
+      displayMode={composition.displayMode as 'side-by-side' | 'stacked'}
+    />
   )
 }
