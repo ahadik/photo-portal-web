@@ -7,6 +7,7 @@ import { getThumbnailDownloadUrl } from '../../services/api'
 
 interface MapViewProps {
   photos: PhotoEntry[]
+  zoomLevel?: number // Zoom level between 1-11, defaults to 2
 }
 
 /**
@@ -24,11 +25,12 @@ interface MarkersRef {
   markerMap: Map<string, MarkerData>
 }
 
-export default function MapView({ photos }: MapViewProps) {
+export default function MapView({ photos, zoomLevel = 2 }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<mapboxgl.Map | null>(null)
   const markersRef = useRef<MarkersRef>({ markers: [], markerMap: new Map() })
   const [thumbnailUrls, setThumbnailUrls] = useState<Map<string, string>>(new Map())
+  const [currentZoom, setCurrentZoom] = useState<number>(zoomLevel)
 
   // Fetch authenticated thumbnail URLs using Firebase API
   useEffect(() => {
@@ -163,9 +165,12 @@ export default function MapView({ photos }: MapViewProps) {
       container: mapContainer.current,
       style: 'mapbox://styles/ahadik/cmiy58cjz002a01sl6hfld8ku', // Default MapBox style
       center: [0, 0], // Center on world
-      zoom: 2, // Zoom level to show entire world
+      zoom: zoomLevel, // Zoom level to show entire world
       projection: 'mercator',
     })
+
+    // Initialize current zoom state
+    setCurrentZoom(zoomLevel)
 
     // Cleanup on unmount
     return () => {
@@ -205,6 +210,20 @@ export default function MapView({ photos }: MapViewProps) {
       })
     }
   }, [photos, thumbnailUrls])
+
+  // Update zoom level when prop changes
+  useEffect(() => {
+    if (!map.current) return
+
+    // Clamp zoom level to valid range (1-11)
+    const clampedZoom = Math.max(1, Math.min(config.maxZoomLevel, zoomLevel))
+    
+    // Only update if zoom has actually changed to avoid unnecessary updates
+    if (Math.abs(map.current.getZoom() - clampedZoom) > 0.01) {
+      map.current.setZoom(clampedZoom)
+      setCurrentZoom(clampedZoom)
+    }
+  }, [zoomLevel])
 
   const mapboxToken = config.mapboxPublicToken
 

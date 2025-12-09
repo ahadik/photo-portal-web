@@ -9,6 +9,8 @@ export const config = {
   messageSyncInterval: 30000, // 30 seconds
   slideshowInterval: 10000, // 10 seconds
   messageDisplayDuration: 60000, // 60 seconds - how long to show a message overlay
+  maxZoomLevel: 11,
+  minZoomLevel: 1,
 };
 
 // Keep URL generation for images (can use direct URLs or getDownloadURL from Firebase Storage SDK)

@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
+import { config } from '../../config';
 
 export type VirtualButtonEvent = 
   | { type: 'LIKE_BUTTON' }
   | { type: 'MAP_TOGGLE'; value: 'ON' | 'OFF' }
   | { type: 'METADATA_TOGGLE' }
   | { type: 'MESSAGE_BUTTON' }
+  | { type: 'ZOOM_DIAL'; value: number }
 
 interface VirtualButtonOverlayProps {
   onEvent: (event: VirtualButtonEvent) => void
@@ -12,15 +14,18 @@ interface VirtualButtonOverlayProps {
   hasUnreadMessages?: boolean
   showMetadata?: boolean
   mapViewEnabled?: boolean
+  zoomLevel?: number // Current zoom level (1-11)
+  onZoomChange?: (zoomLevel: number) => void // Callback for zoom changes
 }
 
 /**
  * VirtualButtonOverlay provides simulated hardware controls for testing
  * when GPIO hardware is not available. Displays as a thin chrome bar at the bottom.
  */
-export default function VirtualButtonOverlay({ onEvent, onClose, hasUnreadMessages = false, showMetadata = false, mapViewEnabled = false }: VirtualButtonOverlayProps) {
+export default function VirtualButtonOverlay({ onEvent, onClose, hasUnreadMessages = false, showMetadata = false, mapViewEnabled = false, zoomLevel = 2, onZoomChange }: VirtualButtonOverlayProps) {
   const [mapToggleState, setMapToggleState] = useState<'ON' | 'OFF'>(mapViewEnabled ? 'ON' : 'OFF')
   const [metadataToggleState, setMetadataToggleState] = useState(showMetadata)
+  const [currentZoom, setCurrentZoom] = useState<number>(zoomLevel)
 
   // Sync metadata toggle state with prop
   useEffect(() => {
@@ -31,6 +36,11 @@ export default function VirtualButtonOverlay({ onEvent, onClose, hasUnreadMessag
   useEffect(() => {
     setMapToggleState(mapViewEnabled ? 'ON' : 'OFF')
   }, [mapViewEnabled])
+
+  // Sync zoom level with prop
+  useEffect(() => {
+    setCurrentZoom(zoomLevel)
+  }, [zoomLevel])
 
   // Close overlay when Escape is pressed
   useEffect(() => {
@@ -62,6 +72,15 @@ export default function VirtualButtonOverlay({ onEvent, onClose, hasUnreadMessag
 
   const handleMessageClick = () => {
     onEvent({ type: 'MESSAGE_BUTTON' })
+  }
+
+  const handleZoomChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newZoom = parseFloat(e.target.value)
+    setCurrentZoom(newZoom)
+    onEvent({ type: 'ZOOM_DIAL', value: newZoom })
+    if (onZoomChange) {
+      onZoomChange(newZoom)
+    }
   }
 
   return (
@@ -186,6 +205,32 @@ export default function VirtualButtonOverlay({ onEvent, onClose, hasUnreadMessag
           {metadataToggleState ? 'ON' : 'OFF'}
         </button>
       </div>
+
+      {/* Zoom Slider - only visible when map view is enabled */}
+      {mapViewEnabled && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: '200px' }}>
+          <span style={{ color: '#fff', fontSize: '0.75rem', opacity: 0.7, whiteSpace: 'nowrap' }}>🔍 Zoom</span>
+          <input
+            type="range"
+            min="1"
+            max={config.maxZoomLevel}
+            step="0.1"
+            value={currentZoom}
+            onChange={handleZoomChange}
+            style={{
+              flex: 1,
+              height: '6px',
+              borderRadius: '3px',
+              background: 'rgba(255, 255, 255, 0.2)',
+              outline: 'none',
+              cursor: 'pointer',
+            }}
+          />
+          <span style={{ color: '#fff', fontSize: '0.75rem', opacity: 0.7, minWidth: '30px', textAlign: 'right' }}>
+            {currentZoom.toFixed(1)}
+          </span>
+        </div>
+      )}
 
       {/* Close button */}
       <button

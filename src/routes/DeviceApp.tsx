@@ -11,6 +11,7 @@ import MessageOverlay from '../components/device/MessageOverlay'
 import VirtualButtonOverlay, { VirtualButtonEvent } from '../components/device/VirtualButtonOverlay'
 import MapView from '../components/device/MapView'
 import Login from '../components/admin/Login'
+import { useGPIO } from '../hooks/useGPIO'
 
 function DeviceApp() {
   const [user, setUser] = useState<User | null>(null)
@@ -24,9 +25,51 @@ function DeviceApp() {
   const [showMetadata, setShowMetadata] = useState(false)
   const [showVirtualControls, setShowVirtualControls] = useState(false)
   const [mapViewEnabled, setMapViewEnabled] = useState(false)
+  const [mapZoomLevel, setMapZoomLevel] = useState<number>(2) // Initial zoom level matching MapView default
   const slideshowRef = useRef<SlideshowRef>(null)
   const messageTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const isInitialLoad = useRef(true)
+
+  // Handle GPIO ZOOM_DIAL events (when useGPIO is implemented)
+  // This will be called by useGPIO hook when ZOOM_DIAL events are received
+  const handleZoomDialChange = useCallback((zoomLevel: number) => {
+    // Only update zoom if map view is enabled
+    if (mapViewEnabled) {
+      // Clamp zoom level to valid range (1-11)
+      const clampedZoom = Math.max(1, Math.min(config.maxZoomLevel, zoomLevel))
+      setMapZoomLevel(clampedZoom)
+    }
+  }, [mapViewEnabled])
+
+  // GPIO integration
+  const { setLedOn, setLedOff, virtualMode } = useGPIO({
+    onMapToggle: (value) => {
+      setMapViewEnabled(value === 'ON')
+    },
+    onMetadataToggle: () => {
+      handleMetadataToggle()
+    },
+    onMessageButton: () => {
+      void handleMessageButton()
+    },
+    onZoomDial: handleZoomDialChange,
+  })
+
+  // Show virtual controls by default when in virtual mode
+  useEffect(() => {
+    if (virtualMode && !showVirtualControls) {
+      setShowVirtualControls(true)
+    }
+  }, [virtualMode, showVirtualControls])
+
+  // Control LED based on unread messages
+  useEffect(() => {
+    if (hasUnreadMessages) {
+      setLedOn()
+    } else {
+      setLedOff()
+    }
+  }, [hasUnreadMessages, setLedOn, setLedOff])
 
   // Use Firebase's onAuthStateChanged directly (more reliable than react-firebase-hooks)
   useEffect(() => {
@@ -243,6 +286,14 @@ function DeviceApp() {
       case 'MESSAGE_BUTTON':
         void handleMessageButton()
         break
+      case 'ZOOM_DIAL':
+        // Only update zoom if map view is enabled
+        if (mapViewEnabled) {
+          // Clamp zoom level to valid range (1-11)
+          const clampedZoom = Math.max(1, Math.min(config.maxZoomLevel, event.value))
+          setMapZoomLevel(clampedZoom)
+        }
+        break
     }
   }
 
@@ -295,7 +346,7 @@ function DeviceApp() {
       <Routes>
         <Route path="/" element={
           mapViewEnabled ? (
-            <MapView photos={photos} />
+            <MapView photos={photos} zoomLevel={mapZoomLevel} />
           ) : photosLoading ? (
             <div style={{
               width: '100%',
@@ -328,6 +379,8 @@ function DeviceApp() {
           hasUnreadMessages={hasUnreadMessages}
           showMetadata={showMetadata}
           mapViewEnabled={mapViewEnabled}
+          zoomLevel={mapZoomLevel}
+          onZoomChange={handleZoomDialChange}
         />
       )}
     </div>
