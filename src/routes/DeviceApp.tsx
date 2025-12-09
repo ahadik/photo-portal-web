@@ -9,6 +9,7 @@ import { syncReadMessageCache, getReadMessageIds, markMessageRead } from '../ser
 import Slideshow, { SlideshowRef } from '../components/device/Slideshow'
 import MessageOverlay from '../components/device/MessageOverlay'
 import VirtualButtonOverlay, { VirtualButtonEvent } from '../components/device/VirtualButtonOverlay'
+import MapView from '../components/device/MapView'
 import Login from '../components/admin/Login'
 
 function DeviceApp() {
@@ -22,6 +23,7 @@ function DeviceApp() {
   const [activeMessage, setActiveMessage] = useState<MessageEntry | null>(null)
   const [showMetadata, setShowMetadata] = useState(false)
   const [showVirtualControls, setShowVirtualControls] = useState(false)
+  const [mapViewEnabled, setMapViewEnabled] = useState(false)
   const slideshowRef = useRef<SlideshowRef>(null)
   const messageTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const isInitialLoad = useRef(true)
@@ -233,7 +235,7 @@ function DeviceApp() {
         // Will be handled by useLikes hook
         break
       case 'MAP_TOGGLE':
-        // Will be handled by map view toggle
+        setMapViewEnabled(event.value === 'ON')
         break
       case 'METADATA_TOGGLE':
         void handleMetadataToggle()
@@ -292,7 +294,9 @@ function DeviceApp() {
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
       <Routes>
         <Route path="/" element={
-          photosLoading ? (
+          mapViewEnabled ? (
+            <MapView photos={photos} />
+          ) : photosLoading ? (
             <div style={{
               width: '100%',
               height: '100%',
@@ -323,6 +327,7 @@ function DeviceApp() {
           onClose={() => setShowVirtualControls(false)}
           hasUnreadMessages={hasUnreadMessages}
           showMetadata={showMetadata}
+          mapViewEnabled={mapViewEnabled}
         />
       )}
     </div>

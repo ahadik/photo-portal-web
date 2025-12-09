@@ -31,7 +31,7 @@ const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
     const [isPaused, setIsPaused] = useState(false)
     const [touchStart, setTouchStart] = useState<number | null>(null)
     const [touchEnd, setTouchEnd] = useState<number | null>(null)
-    const [screenOrientation, setScreenOrientation] = useState<ScreenOrientation>('square')
+    const [, setScreenOrientation] = useState<ScreenOrientation>('square')
     const [compositions, setCompositions] = useState<PhotoComposition[]>([])
 
   // Minimum swipe distance (in pixels) to trigger navigation

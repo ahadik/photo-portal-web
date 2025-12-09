@@ -1,8 +1,10 @@
 export const config = {
   mediaBucket: import.meta.env.VITE_MEDIA_BUCKET || 'photo-portal-media',
   dataBucket: import.meta.env.VITE_DATA_BUCKET || 'photo-portal-data',
-  // Note: Mapbox token is NOT included here - it's only used server-side in Firebase Functions
-  // and should never be exposed in client-side code
+  // Mapbox public access token for client-side map rendering only
+  // This should be a separate public token with URL restrictions (different from server-side MAPBOX_TOKEN)
+  // The server-side MAPBOX_TOKEN is used for geocoding and other billed features and should NOT be exposed
+  mapboxPublicToken: import.meta.env.VITE_MAPBOX_TOKEN || '',
   photoSyncInterval: 60000, // 60 seconds
   messageSyncInterval: 30000, // 30 seconds
   slideshowInterval: 10000, // 10 seconds
