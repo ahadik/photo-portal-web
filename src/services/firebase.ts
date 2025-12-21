@@ -2,7 +2,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getStorage, connectStorageEmulator } from 'firebase/storage';
 import { getFunctions, connectFunctionsEmulator, httpsCallable } from 'firebase/functions';
-import { config } from '../config';
+import { config } from '~/config';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -62,3 +62,44 @@ if (import.meta.env.DEV) {
 }
 
 export const sendMessage = httpsCallable(functions, 'sendMessage');
+
+// Types for processBatches function
+export interface ProcessBatchesRequest {
+  batchIds: string[];
+}
+
+export interface ProcessBatchesResponse {
+  processId: string;
+  status: 'complete';
+}
+
+// Types for cleanupFailedBatches function
+export interface CleanupFailedBatchesRequest {
+  batchIds: string[];
+}
+
+export interface CleanupFailedBatchesResponse {
+  status: 'complete';
+  message: string;
+}
+
+// Create typed wrapper functions
+export const processBatches = async (
+  request: ProcessBatchesRequest
+): Promise<{ data: ProcessBatchesResponse }> => {
+  const callable = httpsCallable(functions, 'processBatches');
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+  const result = await callable(request);
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+  return { data: result.data as ProcessBatchesResponse };
+};
+
+export const cleanupFailedBatches = async (
+  request: CleanupFailedBatchesRequest
+): Promise<{ data: CleanupFailedBatchesResponse }> => {
+  const callable = httpsCallable(functions, 'cleanupFailedBatches');
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+  const result = await callable(request);
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+  return { data: result.data as CleanupFailedBatchesResponse };
+};

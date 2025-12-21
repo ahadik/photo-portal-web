@@ -1,0 +1,12 @@
+.login {
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+.login__error {
+  padding: 1rem;
+  margin-bottom: 1rem;
+  background-color: #fee;
+  color: #c00;
+  border-radius: 4px;
+}

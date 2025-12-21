@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { auth } from '../services/firebase'
+import { auth } from '~/services/firebase'
 import { onAuthStateChanged, User } from 'firebase/auth'
-import Login from '../components/admin/Login'
-import Dashboard from '../components/admin/Dashboard'
+import Login from '~/components/admin/Login'
+import Dashboard from '~/components/admin/Dashboard'
 
 function AdminApp() {
   const [user, setUser] = useState<User | null>(null)

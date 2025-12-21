@@ -1,0 +1,57 @@
+button {
+    background: rgba(85, 85, 85, 0.3);
+    border: 1px solid rgba(85, 85, 85, 0.6);
+    opacity: 1;
+    color: #fff;
+    border-radius: 8px;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    min-width: 80px;
+    transition: all 0.2s;
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+button:not(:disabled):hover {
+    transform: translateY(-2px);
+}
+
+.button--submit {
+    width: 100%;
+    padding: 0.75rem;
+    background: #039be5;
+    border: none;
+    cursor: pointer;
+}
+
+.button--blue {
+    background: rgba(33, 150, 243, 0.2);
+    border: 1px solid rgba(33, 150, 243, 0.5);
+}
+
+.button--blue:hover {
+    background: rgba(33, 150, 243, 0.3);
+}
+
+.button--red {
+    background: rgba(233, 30, 99, 0.2);
+    border: 1px solid rgba(233, 30, 99, 0.5);
+}
+
+.button--red:hover {
+    background: rgba(233, 30, 99, 0.3);
+}
+
+.button--green {
+    background: rgba(76, 175, 80, 0.2);
+    border: 1px solid rgba(76, 175, 80, 0.6);
+}
+
+.button--green:hover {
+    background: rgba(76, 175, 80, 0.3);
+}

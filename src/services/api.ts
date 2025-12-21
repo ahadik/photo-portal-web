@@ -1,6 +1,6 @@
 import { ref, getBytes, getDownloadURL } from 'firebase/storage';
 import { dataStorage, mediaStorage } from './firebase';
-import { PhotosJson, MessagesJson } from '../types';
+import { PhotosJson, MessagesJson } from '~/types';
 
 export async function fetchPhotosIndex(): Promise<PhotosJson> {
   const fileRef = ref(dataStorage, 'photos.json');

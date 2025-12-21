@@ -1,0 +1,29 @@
+.device-app {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    background-color: #000;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-direction: column;
+}
+
+.device-app__slideshow-container {
+    width: 100%;
+    flex-grow: 1;
+}
+
+.device-app--error {
+    flex-direction: column;
+    padding: 2rem;
+}
+
+.device-app__status-message {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+

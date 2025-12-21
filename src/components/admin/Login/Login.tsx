@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth'
-import { auth } from '../../services/firebase'
+import { auth } from '~/services/firebase'
+
+import './Login.css';
 
 function Login() {
   const [email, setEmail] = useState('')
@@ -45,25 +47,19 @@ function Login() {
   }
 
   return (
-    <div style={{ maxWidth: '400px', margin: '0 auto' }}>
+    <div className='login'>
       <h1>Photo Portal Admin</h1>
       <p>You must be logged in to access the admin portal.</p>
       
       {error && (
-        <div style={{ 
-          padding: '1rem', 
-          marginBottom: '1rem', 
-          backgroundColor: '#fee', 
-          color: '#c00',
-          borderRadius: '4px'
-        }}>
+        <div className='login__error'>
           {error}
         </div>
       )}
 
       <form onSubmit={(e) => { void handleSubmit(e) }}>
-        <div style={{ marginBottom: '1rem' }}>
-          <label htmlFor="email" style={{ display: 'block', marginBottom: '0.5rem' }}>
+        <div className='input-block'>
+          <label htmlFor="email">
             Email
           </label>
           <input
@@ -72,12 +68,11 @@ function Login() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            style={{ width: '100%', padding: '0.5rem' }}
           />
         </div>
 
-        <div style={{ marginBottom: '1rem' }}>
-          <label htmlFor="password" style={{ display: 'block', marginBottom: '0.5rem' }}>
+        <div className='input-block'>
+          <label htmlFor="password">
             Password
           </label>
           <input
@@ -86,7 +81,6 @@ function Login() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            style={{ width: '100%', padding: '0.5rem' }}
           />
         </div>
 

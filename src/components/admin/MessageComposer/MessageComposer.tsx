@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
-import { sendMessage } from '../../services/firebase'
-import { fetchPhotosIndex } from '../../services/api'
-import { PhotoEntry } from '../../types'
+import { sendMessage } from '~/services/firebase'
+import { fetchPhotosIndex } from '~/services/api'
+import { PhotoEntry } from '~/types'
+
+import './MessageComposer.css';
 
 function MessageComposer() {
   const [photos, setPhotos] = useState<PhotoEntry[]>([])
@@ -44,15 +46,14 @@ function MessageComposer() {
 
   return (
     <form onSubmit={(e) => { void handleSubmit(e) }}>
-      <div style={{ marginBottom: '1rem' }}>
-        <label htmlFor="photo-select" style={{ display: 'block', marginBottom: '0.5rem' }}>
+      <div className="input-block">
+        <label htmlFor="photo-select">
           Select Photo
         </label>
         <select
           id="photo-select"
           value={selectedPhotoId}
           onChange={(e) => setSelectedPhotoId(e.target.value)}
-          style={{ width: '100%', padding: '0.5rem' }}
         >
           <option value="">Choose a photo...</option>
           {photos.map((photo) => (
@@ -65,8 +66,8 @@ function MessageComposer() {
         </select>
       </div>
 
-      <div style={{ marginBottom: '1rem' }}>
-        <label htmlFor="message-text" style={{ display: 'block', marginBottom: '0.5rem' }}>
+      <div className="input-block">
+        <label htmlFor="message-text">
           Message ({messageText.length}/280)
         </label>
         <textarea
@@ -75,35 +76,26 @@ function MessageComposer() {
           onChange={(e) => setMessageText(e.target.value.slice(0, 280))}
           rows={4}
           maxLength={280}
-          style={{ width: '100%', padding: '0.5rem' }}
           required
         />
       </div>
 
       {error && (
-        <div style={{ padding: '0.5rem', marginBottom: '1rem', backgroundColor: '#fee', color: '#c00', borderRadius: '4px' }}>
+        <div className='input-block__status--error'>
           {error}
         </div>
       )}
 
       {success && (
-        <div style={{ padding: '0.5rem', marginBottom: '1rem', backgroundColor: '#efe', color: '#0c0', borderRadius: '4px' }}>
+        <div className='input-block__status--success'>
           Message sent successfully!
         </div>
       )}
 
       <button
+        className='button button--submit'
         type="submit"
         disabled={loading || !selectedPhotoId || !messageText.trim()}
-        style={{
-          width: '100%',
-          padding: '0.75rem',
-          backgroundColor: '#039be5',
-          color: 'white',
-          border: 'none',
-          borderRadius: '4px',
-          cursor: loading ? 'not-allowed' : 'pointer',
-        }}
       >
         {loading ? 'Sending...' : 'Send Message'}
       </button>

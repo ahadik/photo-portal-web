@@ -1,15 +1,18 @@
 import { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react'
-import { PhotoEntry } from '../../types'
-import PhotoDisplay from './PhotoDisplay'
-import MetadataOverlay from './MetadataOverlay'
-import { getScreenOrientation, ScreenOrientation } from '../../utils/orientation'
-import { createCompositions, PhotoComposition } from '../../utils/compositions'
+import { PhotoEntry } from '~/types'
+import PhotoDisplay from '~/components/device/PhotoDisplay'
+import MetadataOverlay from '~/components/device/MetadataOverlay'
+import { getScreenOrientation, ScreenOrientation } from '~/utils/orientation'
+import { createCompositions, PhotoComposition } from '~/utils/compositions'
+
+import './Slideshow.css'
 
 interface SlideshowProps {
   photos: PhotoEntry[]
   slideInterval?: number // in milliseconds, default 10s
   messageOverlay?: React.ReactNode
   showMetadata?: boolean
+  fadeDuration?: number // in milliseconds, default 1000ms
 }
 
 export interface SlideshowRef {
@@ -17,6 +20,7 @@ export interface SlideshowRef {
   goToNext: () => void
   pause: () => void
   resume: () => void
+  getCurrentPhotoId: () => string | null
 }
 
 /**
@@ -26,7 +30,7 @@ export interface SlideshowRef {
  * Detects screen orientation and creates compositions accordingly.
  */
 const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
-  ({ photos, slideInterval = 10000, messageOverlay, showMetadata = false }, ref) => {
+  ({ photos, slideInterval = 10000, messageOverlay, showMetadata = false, fadeDuration = 1000 }, ref) => {
     const [currentIndex, setCurrentIndex] = useState(0)
     const [isPaused, setIsPaused] = useState(false)
     const [touchStart, setTouchStart] = useState<number | null>(null)
@@ -106,13 +110,18 @@ const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
     setIsPaused(false)
   }, [])
 
+  const getCurrentPhotoId = useCallback(() => {
+    return currentPhoto?.id || null
+  }, [currentPhoto])
+
   // Expose methods via ref for external control
   useImperativeHandle(ref, () => ({
     goToPhoto,
     goToNext,
     pause,
     resume,
-  }), [goToPhoto, goToNext, pause, resume])
+    getCurrentPhotoId,
+  }), [goToPhoto, goToNext, pause, resume, getCurrentPhotoId])
 
   // Touch event handlers for swipe gestures
   const onTouchStart = (e: React.TouchEvent) => {
@@ -157,18 +166,7 @@ const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
 
   if (compositions.length === 0) {
     return (
-      <div
-        style={{
-          width: '100%',
-          height: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: '#000',
-          color: '#fff',
-          fontSize: '1.5rem',
-        }}
-      >
+      <div className="slideshow--no-photos">
         No photos available
       </div>
     )
@@ -176,42 +174,18 @@ const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
 
   return (
     <div
-      style={{
-        width: '100%',
-        height: '100%',
-        position: 'relative',
-        touchAction: 'pan-y',
-      }}
+      className="slideshow"
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      <PhotoDisplay composition={currentComposition} />
+      <PhotoDisplay composition={currentComposition} fadeDuration={fadeDuration} />
       
       {/* Message overlay */}
       {messageOverlay}
       
       {/* Metadata overlay */}
       {showMetadata && <MetadataOverlay photo={currentPhoto} />}
-      
-      {/* Optional: Show current composition index (can be removed or styled differently) */}
-      {compositions.length > 1 && !showMetadata && (
-        <div
-          style={{
-            position: 'absolute',
-            bottom: '20px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            color: '#fff',
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            padding: '8px 16px',
-            borderRadius: '20px',
-            fontSize: '0.875rem',
-          }}
-        >
-          {currentIndex + 1} / {compositions.length}
-        </div>
-      )}
     </div>
   )
 })

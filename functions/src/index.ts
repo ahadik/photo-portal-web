@@ -1,5 +1,4 @@
 import {onCall} from "firebase-functions/v2/https";
-import {onObjectFinalized} from "firebase-functions/v2/storage";
 import * as admin from "firebase-admin";
 import sharp from "sharp";
 import exifr from "exifr";
@@ -28,12 +27,6 @@ if (process.env.FUNCTIONS_EMULATOR === "true") {
 const storage = new Storage();
 
 const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
-
-// Lock file path in Cloud Storage
-const LOCK_FILE_PATH = ".photos.json.lock";
-const LOCK_CHECK_INTERVAL = 200; // Check every 200ms
-const MAX_LOCK_WAIT_TIME = 30000; // Maximum 30 seconds to wait for lock
-const LOCK_TIMEOUT = 60000; // Lock expires after 60 seconds (safety mechanism)
 
 
 /**
@@ -72,7 +65,8 @@ async function reverseGeocode(
   if (!MAPBOX_TOKEN) return null;
   const url =
     "https://api.mapbox.com/search/geocode/v6/reverse?" +
-    `longitude=${lon}8&latitude=${lat}&access_token=${MAPBOX_TOKEN}&limit=1`;
+    `longitude=${lon}8&latitude=${lat}&access_token=${MAPBOX_TOKEN}&` +
+    "limit=1&types=place";
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
@@ -87,294 +81,289 @@ async function reverseGeocode(
 }
 
 /**
- * Checks if photos.json is currently locked by checking for lock file.
- * @return {Promise<boolean>} True if locked, false otherwise.
- */
-async function isPhotosJsonLocked(): Promise<boolean> {
-  const lockFile = storage.bucket(DATA_BUCKET).file(LOCK_FILE_PATH);
-  const [exists] = await lockFile.exists();
-
-  if (!exists) {
-    return false;
-  }
-
-  // Check if lock has expired (safety mechanism)
-  // getMetadata() can throw for network/permission errors, so we catch those
-  try {
-    const [metadata] = await lockFile.getMetadata();
-    const timeCreated = metadata.timeCreated;
-    if (!timeCreated) {
-      return false;
-    }
-    const created = new Date(timeCreated).getTime();
-    const now = Date.now();
-
-    if (now - created > LOCK_TIMEOUT) {
-      console.warn("⚠️ Lock expired, releasing it");
-      await unlockPhotosJson();
-      return false;
-    }
-
-    return true;
-  } catch (error) {
-    // If we can't get metadata (network error, permission issue, etc.),
-    // assume not locked to avoid deadlock
-    console.error("Error getting lock metadata:", error);
-    return false;
-  }
-}
-
-/**
- * Waits for photos.json to be unlocked.
+ * Append a log entry to a log file in Storage (JSONL format).
+ * @param {string} bucketName - The bucket name.
+ * @param {string} logFilePath - The log file path.
+ * @param {unknown} entry - The log entry object to append.
  * @return {Promise<void>}
  */
-async function waitForUnlock(): Promise<void> {
-  const startTime = Date.now();
-
-  while (await isPhotosJsonLocked()) {
-    if (Date.now() - startTime > MAX_LOCK_WAIT_TIME) {
-      throw new Error("Timeout waiting for photos.json lock");
-    }
-
-    // Wait before checking again
-    await new Promise((resolve) => setTimeout(resolve, LOCK_CHECK_INTERVAL));
-  }
-}
-
-/**
- * Acquires the lock for photos.json by creating a lock file.
- * @param {string} lockHolderId - Unique ID for the process holding the lock.
- * @return {Promise<boolean>} True if lock was acquired, false otherwise.
- */
-async function lockPhotosJson(lockHolderId: string): Promise<boolean> {
-  const lockFile = storage.bucket(DATA_BUCKET).file(LOCK_FILE_PATH);
-
-  // Try to create the lock file atomically - will fail if it already exists
-  try {
-    await lockFile.save(JSON.stringify({
-      lockedBy: lockHolderId,
-      lockedAt: new Date().toISOString(),
-    }), {
-      metadata: {
-        contentType: "application/json",
-      },
-      // ifGenerationMatch: 0 means "only create if file doesn't exist"
-      // This makes the operation atomic - if file exists, it will throw 412
-      preconditionOpts: {
-        ifGenerationMatch: 0,
-      },
-    });
-    return true;
-  } catch (error: unknown) {
-    // If file already exists (412 PreconditionFailed), check if lock expired
-    const err = error as {code?: number | string};
-    if (err.code === 412 || err.code === "PreconditionFailed") {
-      // File exists, check if expired
-      const [exists] = await lockFile.exists();
-      if (exists) {
-        try {
-          const [metadata] = await lockFile.getMetadata();
-          const timeCreated = metadata.timeCreated;
-          if (timeCreated) {
-            const created = new Date(timeCreated).getTime();
-            if (Date.now() - created > LOCK_TIMEOUT) {
-              // Lock expired, delete it and recursively try again
-              // This handles race conditions where multiple processes
-              // detect expired lock simultaneously
-              await lockFile.delete().catch(() => {});
-              // Recursive call - will use ifGenerationMatch: 0 again
-              return await lockPhotosJson(lockHolderId);
-            }
-          }
-        } catch {
-          // If we can't get metadata, assume lock is valid
-          return false;
-        }
-      }
-    }
-    return false;
-  }
-}
-
-/**
- * Releases the lock for photos.json by deleting the lock file.
- * @return {Promise<void>}
- */
-async function unlockPhotosJson(): Promise<void> {
-  try {
-    const lockFile = storage.bucket(DATA_BUCKET).file(LOCK_FILE_PATH);
-    await lockFile.delete().catch(() => {
-      // Ignore errors if file doesn't exist
-    });
-  } catch (error) {
-    console.error("Error releasing lock:", error);
-  }
-}
-
-/**
- * Writes a photo entry to photos.json using the locking mechanism.
- * @param {PhotoEntry} newPhotoEntry - The new photo entry to add.
- * @return {Promise<void>}
- */
-async function writePhotoToJsonWithLock(
-  newPhotoEntry: PhotoEntry
+async function appendLogEntry(
+  bucketName: string,
+  logFilePath: string,
+  entry: unknown
 ): Promise<void> {
-  const lockHolderId = uuidv4();
+  const bucket = storage.bucket(bucketName);
+  const file = bucket.file(logFilePath);
 
-  // Step 1: Check if locked, wait if needed
-  if (await isPhotosJsonLocked()) {
-    await waitForUnlock();
-  }
+  const [exists] = await file.exists();
+  const logLine = JSON.stringify(entry) + "\n";
 
-  // Step 2: Acquire lock
-  let lockAcquired = false;
-  let attempts = 0;
-  const maxAttempts = 10;
-
-  while (!lockAcquired && attempts < maxAttempts) {
-    lockAcquired = await lockPhotosJson(lockHolderId);
-    if (!lockAcquired) {
-      attempts++;
-      await new Promise((resolve) => setTimeout(resolve, LOCK_CHECK_INTERVAL));
-      // Re-check if still locked
-      if (await isPhotosJsonLocked()) {
-        await waitForUnlock();
-      }
-    }
-  }
-
-  if (!lockAcquired) {
-    throw new Error(
-      "Failed to acquire lock for photos.json after multiple attempts"
-    );
-  }
-
-  try {
-    // Step 3: Retrieve fresh photos.json from store
-    const now = new Date().toISOString();
-    const photosJson = await readJsonFromBucket<PhotosJson>(
-      DATA_BUCKET,
-      "photos.json",
-      {
-        version: 1,
-        lastUpdated: now,
-        photos: [],
-      }
-    );
-
-    // Step 4: Update with new photo entry
-    const existingIds = new Set(photosJson.photos.map((p) => p.id));
-
-    // Add the new photo entry if not already present
-    if (!existingIds.has(newPhotoEntry.id)) {
-      photosJson.photos.push(newPhotoEntry);
-      photosJson.lastUpdated = now;
-
-      // Step 5: Write the file back
-      await writeJsonToBucket(DATA_BUCKET, "photos.json", photosJson);
-
-      console.log("✅ Successfully wrote photo to photos.json");
-    } else {
-      console.log("ℹ️ Photo already exists in photos.json");
-    }
-  } finally {
-    // Step 6: Unlock the file in state
-    await unlockPhotosJson();
+  if (exists) {
+    // Append to existing file
+    const [contents] = await file.download();
+    const newContents = contents.toString() + logLine;
+    await file.save(newContents, {
+      contentType: "text/plain",
+    });
+  } else {
+    // Create new file
+    await file.save(logLine, {
+      contentType: "text/plain",
+    });
   }
 }
 
-export const processUpload = onObjectFinalized(
+export const processBatches = onCall(
   {
-    bucket: MEDIA_BUCKET,
-    memory: "1GiB",
-    timeoutSeconds: 120,
+    enforceAppCheck: false,
     region: "us-east1",
+    memory: "1GiB",
+    timeoutSeconds: 540, // 9 minutes max
   },
-  async (event) => {
-    const filePath = event.data.name;
-    const bucketName = event.data.bucket || MEDIA_BUCKET;
+  async (request) => {
+    const batchIds = request.data.batchIds as string[] | undefined;
 
-    if (!filePath || !filePath.startsWith("uploads/")) {
-      return;
+    if (!batchIds || !Array.isArray(batchIds) || batchIds.length === 0) {
+      throw new Error("batchIds array is required");
     }
+
+    const processId = uuidv4().replace(/-/g, "");
+    const logFilePath = `logs/${processId}.log`;
+    const dataBucket = storage.bucket(DATA_BUCKET);
+    const mediaBucket = storage.bucket(MEDIA_BUCKET);
 
     try {
-      const bucket = storage.bucket(bucketName);
-      const tempFilePath = `/tmp/${filePath.split("/").pop()}`;
-
-      // Download original file
-      await bucket.file(filePath).download({destination: tempFilePath});
-
-      // Read EXIF - exifr returns complex EXIF data structure
-      const exifData =
-        await exifr.parse(tempFilePath).catch(() => null) as
-        Record<string, unknown> | null;
-
-      const capturedAt = exifData?.DateTimeOriginal ?
-        new Date(exifData.DateTimeOriginal as string).toISOString() :
-        null;
-
-      const lat = exifData?.latitude as number | undefined;
-      const lon = exifData?.longitude as number | undefined;
-
-      // Process image with sharp
-      const image = sharp(tempFilePath).rotate();
-      const resized = image.resize(2048, 2048, {
-        fit: "inside",
-        withoutEnlargement: true,
+      // Initialize log file with start info
+      await appendLogEntry(DATA_BUCKET, logFilePath, {
+        type: "start",
+        timestamp: new Date().toISOString(),
+        batchIds,
       });
-      const {width = 0, height = 0} = await resized.metadata();
-      const aspectRatio = width && height ? width / height : 1;
 
-      const photoId = uuidv4().replace(/-/g, "");
-      const photoFilename = `photos/${photoId}.jpg`;
-      const thumbFilename = `thumbs/${photoId}.jpg`;
+      // Count total photos across all batches
+      let totalPhotos = 0;
+      const photosByBatch: Record<
+        string, Array<{path: string; photoId: string}>
+      > = {};
 
-      const [photoBuffer, thumbBuffer] = await Promise.all([
-        resized.jpeg({quality: 90}).toBuffer(),
-        image.resize({width: 400}).jpeg({quality: 80}).toBuffer(),
-      ]);
+      // List all files in each batch
+      for (const batchId of batchIds) {
+        const uploadsPrefix = `uploads/${batchId}/`;
+        const [files] = await mediaBucket.getFiles({prefix: uploadsPrefix});
 
-      await Promise.all([
-        bucket.file(photoFilename).save(photoBuffer, {
-          contentType: "image/jpeg",
-        }),
-        bucket.file(thumbFilename).save(thumbBuffer, {
-          contentType: "image/jpeg",
-        }),
-      ]);
+        // Filter to image files only (jpg, jpeg)
+        const imageFiles = files.filter((file) => {
+          const name = file.name.toLowerCase();
+          return name.endsWith(".jpg") || name.endsWith(".jpeg");
+        });
 
-      let locationName: string | null = null;
-      if (typeof lat === "number" && typeof lon === "number") {
-        locationName = await reverseGeocode(lat, lon);
+        photosByBatch[batchId] = imageFiles.map((file) => {
+          const filename = file.name.split("/").pop() || "";
+          // Extract photo ID from filename (remove extension)
+          const photoId = filename.replace(/\.(jpg|jpeg)$/i, "");
+          return {path: file.name, photoId};
+        });
+
+        totalPhotos += photosByBatch[batchId].length;
       }
 
-      const now = new Date().toISOString();
+      // Write initial log entry with total count
+      await appendLogEntry(DATA_BUCKET, logFilePath, {
+        type: "count",
+        totalPhotos,
+      });
 
-      const photoEntry: PhotoEntry = {
-        id: photoId,
-        photoUrl: getStorageUrl(MEDIA_BUCKET, photoFilename),
-        thumbUrl: getStorageUrl(MEDIA_BUCKET, thumbFilename),
-        width: width || 0,
-        height: height || 0,
-        aspectRatio,
-        capturedAt,
-        uploadedAt: now,
-        location:
-          typeof lat === "number" && typeof lon === "number" ?
-            {lat, lon, name: locationName} :
-            null,
-      };
+      // Process each batch sequentially
+      for (const batchId of batchIds) {
+        const photos = photosByBatch[batchId];
 
-      // Write to photos.json using lock mechanism
-      await writePhotoToJsonWithLock(photoEntry);
+        // Process each photo sequentially
+        for (const {path, photoId} of photos) {
+          try {
+            await appendLogEntry(DATA_BUCKET, logFilePath, {
+              type: "processing",
+              batchId,
+              photoId,
+              status: "start",
+            });
 
-      // Delete original upload
-      await bucket.file(filePath).delete({ignoreNotFound: true});
+            // Read current photos.json to check for duplicates
+            const photosJson = await readJsonFromBucket<PhotosJson>(
+              DATA_BUCKET,
+              "photos.json",
+              {
+                version: 1,
+                lastUpdated: new Date().toISOString(),
+                photos: [],
+              }
+            );
+
+            // Check if photo ID already exists
+            const existingPhoto = photosJson.photos.find(
+              (p) => p.id === photoId
+            );
+            if (existingPhoto) {
+              await appendLogEntry(DATA_BUCKET, logFilePath, {
+                type: "skip",
+                photoId,
+                reason: "duplicate",
+              });
+              // Delete original photo even if duplicate
+              await mediaBucket.file(path).delete({ignoreNotFound: true});
+              continue;
+            }
+
+            // Download and process photo
+            const tempFilePath = `/tmp/${photoId}.jpg`;
+            await mediaBucket.file(path).download({destination: tempFilePath});
+
+            // Read EXIF
+            const exifData =
+              await exifr.parse(tempFilePath).catch(() => null) as
+              Record<string, unknown> | null;
+
+            const capturedAt = exifData?.DateTimeOriginal ?
+              new Date(exifData.DateTimeOriginal as string).toISOString() :
+              null;
+
+            const lat = exifData?.latitude as number | undefined;
+            const lon = exifData?.longitude as number | undefined;
+
+            // Process image with sharp
+            const image = sharp(tempFilePath).rotate();
+            const resized = image.resize(4096, 4096, {
+              fit: "inside",
+              withoutEnlargement: true,
+            });
+            const {width = 0, height = 0} = await resized.metadata();
+            const aspectRatio = width && height ? width / height : 1;
+
+            const photoFilename = `photos/${photoId}.jpg`;
+            const thumbFilename = `thumbs/${photoId}.jpg`;
+
+            const [photoBuffer, thumbBuffer] = await Promise.all([
+              resized.jpeg({quality: 90}).toBuffer(),
+              image.resize({width: 400}).jpeg({quality: 80}).toBuffer(),
+            ]);
+
+            await Promise.all([
+              mediaBucket.file(photoFilename).save(photoBuffer, {
+                contentType: "image/jpeg",
+              }),
+              mediaBucket.file(thumbFilename).save(thumbBuffer, {
+                contentType: "image/jpeg",
+              }),
+            ]);
+
+            let locationName: string | null = null;
+            if (typeof lat === "number" && typeof lon === "number") {
+              locationName = await reverseGeocode(lat, lon);
+            }
+
+            const now = new Date().toISOString();
+
+            const photoEntry: PhotoEntry = {
+              id: photoId,
+              photoUrl: getStorageUrl(MEDIA_BUCKET, photoFilename),
+              thumbUrl: getStorageUrl(MEDIA_BUCKET, thumbFilename),
+              width: width || 0,
+              height: height || 0,
+              aspectRatio,
+              capturedAt,
+              uploadedAt: now,
+              location:
+                typeof lat === "number" && typeof lon === "number" ?
+                  {lat, lon, name: locationName} :
+                  null,
+            };
+
+            // Append to photos.json
+            photosJson.photos.push(photoEntry);
+            photosJson.lastUpdated = now;
+            await writeJsonToBucket(DATA_BUCKET, "photos.json", photosJson);
+
+            // Delete original photo
+            await mediaBucket.file(path).delete({ignoreNotFound: true});
+
+            await appendLogEntry(DATA_BUCKET, logFilePath, {
+              type: "complete",
+              photoId,
+            });
+          } catch (error: unknown) {
+            const errorMessage = error instanceof Error ?
+              error.message : String(error);
+            await appendLogEntry(DATA_BUCKET, logFilePath, {
+              type: "error",
+              photoId,
+              error: errorMessage,
+            });
+            // Continue with next photo
+          }
+        }
+
+        // Check if batch directory is empty and delete it
+        const uploadsPrefix = `uploads/${batchId}/`;
+        const [remainingFiles] = await mediaBucket.getFiles({
+          prefix: uploadsPrefix,
+        });
+        if (remainingFiles.length === 0) {
+          // Directory is effectively empty
+          await appendLogEntry(DATA_BUCKET, logFilePath, {
+            type: "batch_complete",
+            batchId,
+          });
+        }
+      }
+
+      // Processing complete - delete log file
+      await appendLogEntry(DATA_BUCKET, logFilePath, {
+        type: "finish",
+        timestamp: new Date().toISOString(),
+      });
+      await dataBucket.file(logFilePath).delete({ignoreNotFound: true});
+
+      return {processId, status: "complete"};
     } catch (error: unknown) {
-      console.error("Error in processUpload:", error);
+      const errorMessage = error instanceof Error ?
+        error.message : String(error);
+      await appendLogEntry(DATA_BUCKET, logFilePath, {
+        type: "error",
+        error: errorMessage,
+      });
+      // Keep log file for debugging
       throw error;
     }
+  }
+);
+
+export const cleanupFailedBatches = onCall(
+  {
+    enforceAppCheck: false,
+    region: "us-east1",
+  },
+  async (request) => {
+    const batchIds = request.data.batchIds as string[] | undefined;
+
+    if (!batchIds || !Array.isArray(batchIds) || batchIds.length === 0) {
+      throw new Error("batchIds array is required");
+    }
+
+    const mediaBucket = storage.bucket(MEDIA_BUCKET);
+
+    // Delete all photos from failed batches
+    for (const batchId of batchIds) {
+      const uploadsPrefix = `uploads/${batchId}/`;
+      const [files] = await mediaBucket.getFiles({prefix: uploadsPrefix});
+
+      await Promise.all(
+        files.map((file) => file.delete().catch(() => {}))
+      );
+    }
+
+    return {
+      status: "complete",
+      message: `Cleaned up ${batchIds.length} batch(es)`,
+    };
   }
 );
 

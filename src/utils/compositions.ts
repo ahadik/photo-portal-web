@@ -1,4 +1,4 @@
-import { PhotoEntry } from '../types'
+import { PhotoEntry } from '~/types'
 import { ScreenOrientation, getPhotoOrientation } from './orientation'
 
 /**

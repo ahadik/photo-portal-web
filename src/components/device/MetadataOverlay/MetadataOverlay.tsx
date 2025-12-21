@@ -1,4 +1,6 @@
-import { PhotoEntry } from '../../types'
+import { PhotoEntry } from '~/types'
+
+import './MetadataOverlay.css';
 
 interface MetadataOverlayProps {
   photo: PhotoEntry | null
@@ -38,48 +40,18 @@ export default function MetadataOverlay({ photo }: MetadataOverlayProps) {
 
   return (
     <div
-      style={{
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.85)',
-        backdropFilter: 'blur(8px)',
-        borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-        padding: '1rem 2rem',
-        zIndex: 1000,
-        boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.3)',
-      }}
+      className='metadata-overlay'
     >
+      
       <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '0.5rem',
-          maxWidth: '1200px',
-          margin: '0 auto',
-        }}
+        className='metadata-overlay__content'
       >
-        {/* Capture date/time */}
-        <div
-          style={{
-            color: '#fff',
-            fontSize: '1rem',
-            fontWeight: '500',
-          }}
-        >
+        <p className='caption info'>
           {formatCaptureDate(photo.capturedAt)}
-        </div>
-
-        {/* Location */}
-        <div
-          style={{
-            color: 'rgba(255, 255, 255, 0.8)',
-            fontSize: '0.875rem',
-          }}
-        >
-          📍 {locationName}
-        </div>
+        </p>
+        <p className='caption info'>
+          {locationName}
+        </p>
       </div>
     </div>
   )

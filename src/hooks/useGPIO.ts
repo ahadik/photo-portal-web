@@ -36,13 +36,11 @@ export function useGPIO(options: UseGPIOOptions = {}): UseGPIOReturn {
   const maxReconnectAttempts = 3
   const reconnectDelay = 2000 // 2 seconds
 
-  const {
-    onLikeButton,
-    onMapToggle,
-    onMetadataToggle,
-    onMessageButton,
-    onZoomDial,
-  } = options
+  // Store callbacks in refs to avoid stale closures without reconnecting
+  const callbacksRef = useRef(options)
+  useEffect(() => {
+    callbacksRef.current = options
+  }, [options])
 
   // Send LED command
   const sendLedCommand = useCallback((value: 'ON' | 'OFF') => {
@@ -68,25 +66,28 @@ export function useGPIO(options: UseGPIOOptions = {}): UseGPIOReturn {
 
   // Connect to WebSocket
   useEffect(() => {
-    // Don't attempt connection if already in virtual mode
-    if (virtualMode) return
-
     let mounted = true
-    const virtualModeRef = { current: false } // Use ref to avoid dependency issues
+    const virtualModeRef = { current: false } // Track if we've given up in this attempt cycle
+    reconnectAttempts.current = 0 // Reset attempts for new connection attempt
 
     const connect = () => {
-      // Don't connect if already in virtual mode
+      // Don't attempt if we've already given up in this cycle
       if (virtualModeRef.current) return
 
       try {
         const ws = new WebSocket('ws://localhost:8765')
 
         ws.onopen = () => {
-          if (mounted && !virtualModeRef.current) {
+          if (mounted) {
             console.log('GPIO WebSocket connected')
             setConnected(true)
             reconnectAttempts.current = 0
             wsRef.current = ws
+            // Clear virtual mode on successful connection
+            if (virtualModeRef.current) {
+              virtualModeRef.current = false
+              setVirtualMode(false)
+            }
           }
         }
 
@@ -94,23 +95,24 @@ export function useGPIO(options: UseGPIOOptions = {}): UseGPIOReturn {
           if (!mounted || virtualModeRef.current) return
 
           try {
-            const data = JSON.parse(event.data) as GPIOEvent
+            const data = JSON.parse(event.data as string) as GPIOEvent
+            const callbacks = callbacksRef.current
 
             switch (data.type) {
               case 'LIKE_BUTTON':
-                onLikeButton?.()
+                callbacks.onLikeButton?.()
                 break
               case 'MAP_TOGGLE':
-                onMapToggle?.(data.value)
+                callbacks.onMapToggle?.(data.value)
                 break
               case 'METADATA_TOGGLE':
-                onMetadataToggle?.()
+                callbacks.onMetadataToggle?.()
                 break
               case 'MESSAGE_BUTTON':
-                onMessageButton?.()
+                callbacks.onMessageButton?.()
                 break
               case 'ZOOM_DIAL':
-                onZoomDial?.(data.value)
+                callbacks.onZoomDial?.(data.value)
                 break
               default:
                 if (!virtualModeRef.current) {
@@ -134,38 +136,13 @@ export function useGPIO(options: UseGPIOOptions = {}): UseGPIOReturn {
           }
         }
 
-        ws.onclose = (event) => {
-          if (mounted && !virtualModeRef.current) {
-            setConnected(false)
-            wsRef.current = null
-
-            // Attempt to reconnect if we haven't exceeded max attempts
-            if (reconnectAttempts.current < maxReconnectAttempts) {
-              reconnectAttempts.current++
-              reconnectTimeoutRef.current = setTimeout(() => {
-                if (mounted && !virtualModeRef.current) {
-                  connect()
-                }
-              }, reconnectDelay)
-            } else {
-              // Max attempts reached - switch to virtual mode
-              if (!virtualModeRef.current) {
-                virtualModeRef.current = true
-                console.log('GPIO WebSocket connection failed after retries. Switching to Virtual mode.')
-                setVirtualMode(true)
-              }
-            }
-          }
-        }
-      } catch (error) {
-        if (mounted && !virtualModeRef.current) {
-          // Only log error if we haven't exceeded max attempts
-          if (reconnectAttempts.current < maxReconnectAttempts) {
-            console.error('Failed to create GPIO WebSocket connection:', error)
-          }
-          setConnected(false)
+        ws.onclose = (_event) => {
+          if (!mounted || virtualModeRef.current) return
           
-          // Retry connection
+          setConnected(false)
+          wsRef.current = null
+
+          // Attempt to reconnect if we haven't exceeded max attempts
           if (reconnectAttempts.current < maxReconnectAttempts) {
             reconnectAttempts.current++
             reconnectTimeoutRef.current = setTimeout(() => {
@@ -175,12 +152,33 @@ export function useGPIO(options: UseGPIOOptions = {}): UseGPIOReturn {
             }, reconnectDelay)
           } else {
             // Max attempts reached - switch to virtual mode
-            if (!virtualModeRef.current) {
-              virtualModeRef.current = true
-              console.log('GPIO WebSocket connection failed after retries. Switching to Virtual mode.')
-              setVirtualMode(true)
-            }
+            virtualModeRef.current = true
+            console.log('GPIO WebSocket connection failed after retries. Switching to Virtual mode.')
+            setVirtualMode(true)
           }
+        }
+      } catch (error) {
+        if (!mounted || virtualModeRef.current) return
+        
+        // Only log error if we haven't exceeded max attempts
+        if (reconnectAttempts.current < maxReconnectAttempts) {
+          console.error('Failed to create GPIO WebSocket connection:', error)
+        }
+        setConnected(false)
+        
+        // Retry connection
+        if (reconnectAttempts.current < maxReconnectAttempts) {
+          reconnectAttempts.current++
+          reconnectTimeoutRef.current = setTimeout(() => {
+            if (mounted && !virtualModeRef.current) {
+              connect()
+            }
+          }, reconnectDelay)
+        } else {
+          // Max attempts reached - switch to virtual mode
+          virtualModeRef.current = true
+          console.log('GPIO WebSocket connection failed after retries. Switching to Virtual mode.')
+          setVirtualMode(true)
         }
       }
     }
@@ -197,7 +195,9 @@ export function useGPIO(options: UseGPIOOptions = {}): UseGPIOReturn {
         wsRef.current = null
       }
     }
-  }, [onLikeButton, onMapToggle, onMetadataToggle, onMessageButton, onZoomDial])
+    // Only run once on mount - reconnect logic is handled internally
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return {
     connected,

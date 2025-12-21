@@ -1,5 +1,5 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb'
-import { PhotoEntry, MessageEntry } from '../types'
+import { PhotoEntry, MessageEntry } from '~/types'
 
 interface PhotoPortalDB extends DBSchema {
   photos: {
@@ -213,4 +213,58 @@ export async function syncReadMessageCache(messageIds: string[]): Promise<void> 
     metadata.readMessageIds = metadata.readMessageIds.filter((id) => messageIds.includes(id))
     await db.put('metadata', metadata)
   }
+}
+
+export interface LocationFilterBounds {
+  north: number
+  south: number
+  east: number
+  west: number
+}
+
+export interface ActiveLocationFilter {
+  bounds: LocationFilterBounds
+  setAt: string
+}
+
+export async function getActiveLocationFilter(): Promise<ActiveLocationFilter | null> {
+  const db = await getDB()
+  const metadata = await db.get('metadata', 'main')
+  return metadata?.activeLocationFilter || null
+}
+
+export async function setActiveLocationFilter(bounds: LocationFilterBounds): Promise<void> {
+  const db = await getDB()
+  const existing = await db.get('metadata', 'main')
+  const metadata = existing || {
+    key: 'main',
+    likedPhotoIds: [] as string[],
+    readMessageIds: [] as string[],
+    lastSyncedPhotosAt: '',
+    lastSyncedMessagesAt: '',
+    activeLocationFilter: null,
+  }
+
+  metadata.activeLocationFilter = {
+    bounds,
+    setAt: new Date().toISOString(),
+  }
+
+  await db.put('metadata', metadata)
+}
+
+export async function clearActiveLocationFilter(): Promise<void> {
+  const db = await getDB()
+  const existing = await db.get('metadata', 'main')
+  const metadata = existing || {
+    key: 'main',
+    likedPhotoIds: [] as string[],
+    readMessageIds: [] as string[],
+    lastSyncedPhotosAt: '',
+    lastSyncedMessagesAt: '',
+    activeLocationFilter: null,
+  }
+
+  metadata.activeLocationFilter = null
+  await db.put('metadata', metadata)
 }

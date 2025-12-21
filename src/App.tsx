@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import DeviceApp from './routes/DeviceApp'
-import AdminApp from './routes/AdminApp'
+import DeviceApp from '~/routes/DeviceApp'
+import AdminApp from '~/routes/AdminApp'
 
 function App() {
   return (
