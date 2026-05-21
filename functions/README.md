@@ -226,7 +226,7 @@ firebase functions:log --only processUpload
 
 Functions use the following environment variables:
 
-- **`MAPBOX_TOKEN`**: Mapbox API token for reverse geocoding (required for location names)
+- **`GOOGLE_MAPS_API_KEY`**: Google Maps API key for reverse geocoding (required for location names)
 - **`MEDIA_BUCKET`**: Firebase Storage bucket name for media files (default: `photo-portal-media`)
 - **`DATA_BUCKET`**: Firebase Storage bucket name for JSON data (default: `photo-portal-data`)
 
@@ -234,10 +234,10 @@ Functions use the following environment variables:
 
 Use Firebase Functions secrets (recommended for sensitive data):
 ```bash
-firebase functions:secrets:set MAPBOX_TOKEN
+firebase functions:secrets:set GOOGLE_MAPS_API_KEY
 ```
 
-Access in code via `process.env.MAPBOX_TOKEN`.
+Access in code via `process.env.GOOGLE_MAPS_API_KEY`.
 
 ### Function Configuration
 

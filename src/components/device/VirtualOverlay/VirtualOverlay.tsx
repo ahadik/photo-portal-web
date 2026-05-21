@@ -5,34 +5,34 @@ import './VirtualOverlay.css';
 import classNames from 'classnames';
 
 export type VirtualButtonEvent = 
-  | { type: 'LIKE_BUTTON' }
   | { type: 'MAP_TOGGLE'; value: 'ON' | 'OFF' }
-  | { type: 'METADATA_TOGGLE' }
-  | { type: 'MESSAGE_BUTTON' }
+  | { type: 'METADATA_TOGGLE'; value: 'ON' | 'OFF' }
+  | { type: 'SELECT_BUTTON' }
   | { type: 'ZOOM_DIAL'; value: number }
 
 interface VirtualOverlayProps {
   onEvent: (event: VirtualButtonEvent) => void
   onClose: () => void
-  hasUnreadMessages?: boolean
+  hasNewMessage?: boolean // New message waiting (glowing state)
   showMetadata?: boolean
   mapViewEnabled?: boolean
   zoomLevel?: number // Current zoom level (1-11)
   onZoomChange?: (zoomLevel: number) => void // Callback for zoom changes
+  serverConnected?: boolean // Whether local server is connected (disables zoom slider)
 }
 
 /**
  * VirtualOverlay provides simulated hardware controls for testing
  * when GPIO hardware is not available. Displays as a thin chrome bar at the bottom.
  */
-export default function VirtualOverlay({ onEvent, onClose, hasUnreadMessages = false, showMetadata = false, mapViewEnabled = false, zoomLevel = 2, onZoomChange }: VirtualOverlayProps) {
+export default function VirtualOverlay({ onEvent, onClose, hasNewMessage = false, showMetadata = false, mapViewEnabled = false, zoomLevel = 2, onZoomChange, serverConnected = false }: VirtualOverlayProps) {
   const [mapToggleState, setMapToggleState] = useState<'ON' | 'OFF'>(mapViewEnabled ? 'ON' : 'OFF')
-  const [metadataToggleState, setMetadataToggleState] = useState(showMetadata)
+  const [metadataToggleState, setMetadataToggleState] = useState<'ON' | 'OFF'>(showMetadata ? 'ON' : 'OFF')
   const [currentZoom, setCurrentZoom] = useState<number>(zoomLevel)
 
   // Sync metadata toggle state with prop
   useEffect(() => {
-    setMetadataToggleState(showMetadata)
+    setMetadataToggleState(showMetadata ? 'ON' : 'OFF')
   }, [showMetadata])
 
   // Sync map toggle state with prop
@@ -57,10 +57,6 @@ export default function VirtualOverlay({ onEvent, onClose, hasUnreadMessages = f
     return () => window.removeEventListener('keydown', handleKeyPress)
   }, [onClose])
 
-  const handleLikeClick = () => {
-    onEvent({ type: 'LIKE_BUTTON' })
-  }
-
   const handleMapToggle = () => {
     const newState = mapToggleState === 'ON' ? 'OFF' : 'ON'
     setMapToggleState(newState)
@@ -68,13 +64,13 @@ export default function VirtualOverlay({ onEvent, onClose, hasUnreadMessages = f
   }
 
   const handleMetadataToggle = () => {
-    const newState = !metadataToggleState
+    const newState = metadataToggleState === 'ON' ? 'OFF' : 'ON'
     setMetadataToggleState(newState)
-    onEvent({ type: 'METADATA_TOGGLE' })
+    onEvent({ type: 'METADATA_TOGGLE', value: newState })
   }
 
-  const handleMessageClick = () => {
-    onEvent({ type: 'MESSAGE_BUTTON' })
+  const handleSelectClick = () => {
+    onEvent({ type: 'SELECT_BUTTON' })
   }
 
   const handleZoomChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -90,17 +86,12 @@ export default function VirtualOverlay({ onEvent, onClose, hasUnreadMessages = f
     <div
     className='virtual-overlay'
     >
-      {/* Select/Like Button - contextual based on map view */}
-      <button className='button--red' onClick={handleLikeClick}>
-        {mapViewEnabled ? '📍 Select' : '❤️ Like'}
-      </button>
-
       {/* Message Button */}
       <button
-        onClick={handleMessageClick}
-        disabled={!hasUnreadMessages}
+        onClick={handleSelectClick}
+        className={classNames({ 'button--glow': hasNewMessage })}
       >
-        💬 Message
+        {mapToggleState === 'ON' ? '📍 Set Filter' : '💬 Message'}
       </button>
 
       {/* Map Toggle */}
@@ -119,14 +110,14 @@ export default function VirtualOverlay({ onEvent, onClose, hasUnreadMessages = f
         <p>📋 Meta</p>
         <button
           onClick={handleMetadataToggle}
-          className={classNames({ 'button--blue': metadataToggleState })}
+          className={classNames({ 'button--blue': metadataToggleState === 'ON' })}
         >
-          {metadataToggleState ? 'ON' : 'OFF'}
+          {metadataToggleState}
         </button>
       </div>
 
-      {/* Zoom Slider - only visible when map view is enabled */}
-      {mapViewEnabled && (
+      {/* Zoom Slider - only visible when map view is enabled AND server is NOT connected */}
+      {mapViewEnabled && !serverConnected && (
         <div className='virtual-overlay__zoom'>
           <p>🔍 Zoom</p>
           <input

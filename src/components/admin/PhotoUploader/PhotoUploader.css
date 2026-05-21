@@ -50,10 +50,9 @@
     transition: width 0.3s;
 }
 
-.photo-uploader__processing-status {
+.photo-uploader__batch-processing {
     margin-top: 20px;
     padding: 20px;
-    border: 1px solid #83b1de;
+    border: 1px solid #ddd;
     border-radius: 4px;
-    background-color: #323541;
 }

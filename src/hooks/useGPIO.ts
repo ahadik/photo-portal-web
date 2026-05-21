@@ -1,26 +1,28 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 
 export type GPIOEvent =
-  | { type: 'LIKE_BUTTON' }
   | { type: 'MAP_TOGGLE'; value: 'ON' | 'OFF' }
-  | { type: 'METADATA_TOGGLE' }
-  | { type: 'MESSAGE_BUTTON' }
+  | { type: 'METADATA_TOGGLE'; value: 'ON' | 'OFF' }
+  | { type: 'SELECT_BUTTON' }
   | { type: 'ZOOM_DIAL'; value: number }
 
 interface UseGPIOOptions {
-  onLikeButton?: () => void
   onMapToggle?: (value: 'ON' | 'OFF') => void
-  onMetadataToggle?: () => void
-  onMessageButton?: () => void
+  onMetadataToggle?: (value: 'ON' | 'OFF') => void
+  onSelectButton?: () => void
   onZoomDial?: (zoomLevel: number) => void
   onLedCommand?: (value: 'ON' | 'OFF') => void
 }
+
+type WSMessage = { direction: 'in' | 'out'; type: string; data?: unknown }
 
 interface UseGPIOReturn {
   connected: boolean
   virtualMode: boolean
   setLedOn: () => void
   setLedOff: () => void
+  sendEvent: (event: { type: string; value?: unknown }) => void
+  wsMessages: WSMessage[]
 }
 
 /**
@@ -30,6 +32,7 @@ interface UseGPIOReturn {
 export function useGPIO(options: UseGPIOOptions = {}): UseGPIOReturn {
   const [connected, setConnected] = useState(false)
   const [virtualMode, setVirtualMode] = useState(false)
+  const [wsMessages, setWsMessages] = useState<WSMessage[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const reconnectAttempts = useRef(0)
@@ -47,7 +50,10 @@ export function useGPIO(options: UseGPIOOptions = {}): UseGPIOReturn {
     if (virtualMode) return // Don't try to send commands in virtual mode
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       try {
-        wsRef.current.send(JSON.stringify({ type: 'LED', value }))
+        const message = { type: 'LED', value }
+        wsRef.current.send(JSON.stringify(message))
+        // Track outgoing message
+        setWsMessages((prev) => [...prev, { direction: 'out', type: 'LED', data: value }])
       } catch (error) {
         if (!virtualMode) {
           console.error('Failed to send LED command:', error)
@@ -63,6 +69,22 @@ export function useGPIO(options: UseGPIOOptions = {}): UseGPIOReturn {
   const setLedOff = useCallback(() => {
     sendLedCommand('OFF')
   }, [sendLedCommand])
+
+  // Send event to GPIO service
+  const sendEvent = useCallback((event: { type: string; value?: unknown }) => {
+    if (virtualMode) return // Don't try to send commands in virtual mode
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify(event))
+        // Track outgoing message
+        setWsMessages((prev) => [...prev, { direction: 'out', type: event.type, data: event.value }])
+      } catch (error) {
+        if (!virtualMode) {
+          console.error('Failed to send event to GPIO service:', error)
+        }
+      }
+    }
+  }, [virtualMode])
 
   // Connect to WebSocket
   useEffect(() => {
@@ -98,18 +120,20 @@ export function useGPIO(options: UseGPIOOptions = {}): UseGPIOReturn {
             const data = JSON.parse(event.data as string) as GPIOEvent
             const callbacks = callbacksRef.current
 
+            // Track incoming message
+            if (mounted) {
+              setWsMessages((prev) => [...prev, { direction: 'in', type: data.type, data: 'value' in data ? data.value : undefined }])
+            }
+
             switch (data.type) {
-              case 'LIKE_BUTTON':
-                callbacks.onLikeButton?.()
-                break
               case 'MAP_TOGGLE':
                 callbacks.onMapToggle?.(data.value)
                 break
               case 'METADATA_TOGGLE':
-                callbacks.onMetadataToggle?.()
+                callbacks.onMetadataToggle?.(data.value)
                 break
-              case 'MESSAGE_BUTTON':
-                callbacks.onMessageButton?.()
+              case 'SELECT_BUTTON':
+                callbacks.onSelectButton?.()
                 break
               case 'ZOOM_DIAL':
                 callbacks.onZoomDial?.(data.value)
@@ -204,5 +228,7 @@ export function useGPIO(options: UseGPIOOptions = {}): UseGPIOReturn {
     virtualMode,
     setLedOn,
     setLedOff,
+    sendEvent,
+    wsMessages,
   }
 }

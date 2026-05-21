@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react'
+import { useState, useEffect, useCallback, useImperativeHandle, forwardRef, useMemo, useRef } from 'react'
 import { PhotoEntry } from '~/types'
 import PhotoDisplay from '~/components/device/PhotoDisplay'
 import MetadataOverlay from '~/components/device/MetadataOverlay'
 import { getScreenOrientation, ScreenOrientation } from '~/utils/orientation'
 import { createCompositions, PhotoComposition } from '~/utils/compositions'
+import { formatCaptureDate } from '~/utils/dateFormat'
 
 import './Slideshow.css'
 
@@ -24,7 +25,20 @@ export interface SlideshowRef {
 }
 
 /**
+ * Shuffle array using Fisher-Yates algorithm
+ */
+function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array]
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+  }
+  return shuffled
+}
+
+/**
  * Slideshow component manages photo display with automatic advancement.
+ * Creates compositions, randomly orders them, and loops through them.
  * Supports manual navigation via swipe gestures (left/right).
  * Can be controlled externally via ref.
  * Detects screen orientation and creates compositions accordingly.
@@ -35,160 +49,219 @@ const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
     const [isPaused, setIsPaused] = useState(false)
     const [touchStart, setTouchStart] = useState<number | null>(null)
     const [touchEnd, setTouchEnd] = useState<number | null>(null)
-    const [, setScreenOrientation] = useState<ScreenOrientation>('square')
-    const [compositions, setCompositions] = useState<PhotoComposition[]>([])
+    const [screenOrientation, setScreenOrientation] = useState<ScreenOrientation>('square')
+    const previousPhotoIdsRef = useRef<string>('')
+    const previousOrientationRef = useRef<ScreenOrientation>('square')
+    const orderedCompositionsRef = useRef<PhotoComposition[]>([])
 
-  // Minimum swipe distance (in pixels) to trigger navigation
-  const minSwipeDistance = 50
+    // Detect screen orientation
+    useEffect(() => {
+      const updateOrientation = () => {
+        const width = window.innerWidth
+        const height = window.innerHeight
+        const orientation = getScreenOrientation(width, height)
+        setScreenOrientation(orientation)
+      }
 
-  // Detect screen orientation and update compositions when viewport changes
-  useEffect(() => {
-    const updateOrientation = () => {
-      const width = window.innerWidth
-      const height = window.innerHeight
-      const orientation = getScreenOrientation(width, height)
-      setScreenOrientation(orientation)
+      // Initial calculation
+      updateOrientation()
+
+      // Update on resize
+      window.addEventListener('resize', updateOrientation)
+      return () => window.removeEventListener('resize', updateOrientation)
+    }, [])
+
+    // Create a stable key from photo IDs to detect actual changes
+    const photoIdsKey = useMemo(() => {
+      return photos.map(p => p.id).sort().join(',')
+    }, [photos])
+
+    // Create compositions and randomly shuffle them
+    // Only re-shuffle when photo IDs actually change
+    // On orientation change, re-create compositions but don't reset index
+    const orderedCompositions = useMemo(() => {
+      if (photos.length === 0) {
+        orderedCompositionsRef.current = []
+        previousPhotoIdsRef.current = ''
+        previousOrientationRef.current = screenOrientation
+        return []
+      }
       
-      // Create compositions based on current screen orientation
-      const newCompositions = createCompositions(photos, orientation)
-      setCompositions(newCompositions)
-    }
+      // Check if photos actually changed
+      const photosChanged = previousPhotoIdsRef.current !== photoIdsKey
+      const orientationChanged = previousOrientationRef.current !== screenOrientation
+      
+      if (photosChanged) {
+        // Photos changed: create new compositions and shuffle
+        const compositions = createCompositions(photos, screenOrientation)
+        const shuffled = shuffleArray(compositions)
+        orderedCompositionsRef.current = shuffled
+        previousPhotoIdsRef.current = photoIdsKey
+        previousOrientationRef.current = screenOrientation
+        return shuffled
+      } else if (orientationChanged) {
+        // Same photos but orientation changed: re-create compositions and shuffle
+        // Don't reset index - let it continue from current position (will wrap if needed)
+        const compositions = createCompositions(photos, screenOrientation)
+        const shuffled = shuffleArray(compositions)
+        orderedCompositionsRef.current = shuffled
+        previousOrientationRef.current = screenOrientation
+        return shuffled
+      } else {
+        // Nothing changed, return existing compositions to avoid unnecessary re-renders
+        return orderedCompositionsRef.current
+      }
+    }, [photoIdsKey, screenOrientation, photos])
 
-    // Initial calculation
-    updateOrientation()
+    // Reset to first composition only when photos actually change (not on orientation change)
+    useEffect(() => {
+      const photosChanged = previousPhotoIdsRef.current !== photoIdsKey
+      if (photosChanged && previousPhotoIdsRef.current !== '') {
+        // Photos changed (not initial load) - reset to start
+        setCurrentIndex(0)
+      }
+    }, [photoIdsKey])
 
-    // Update on resize
-    window.addEventListener('resize', updateOrientation)
-    return () => window.removeEventListener('resize', updateOrientation)
-  }, [photos])
+    // Reset index if out of bounds
+    useEffect(() => {
+      if (orderedCompositions.length > 0 && currentIndex >= orderedCompositions.length) {
+        setCurrentIndex(0)
+      }
+    }, [orderedCompositions.length, currentIndex])
 
-  // Reset to first composition if current index is out of bounds when compositions change
-  useEffect(() => {
-    if (currentIndex >= compositions.length && compositions.length > 0) {
-      setCurrentIndex(0)
-    }
-  }, [compositions.length, currentIndex])
+    const currentComposition = orderedCompositions.length > 0 ? orderedCompositions[currentIndex] : null
+    // For metadata overlay, get the first photo from the composition
+    const currentPhoto = currentComposition?.photos[0] || null
 
-  const currentComposition = compositions.length > 0 ? compositions[currentIndex] : null
-  // For metadata overlay, get the first photo from the composition
-  const currentPhoto = currentComposition?.photos[0] || null
+    const goToNext = useCallback(() => {
+      setCurrentIndex((prev) => {
+        if (orderedCompositions.length === 0) return prev
+        return (prev + 1) % orderedCompositions.length
+      })
+    }, [orderedCompositions.length])
 
-  // Auto-advance slideshow
-  useEffect(() => {
-    if (compositions.length === 0 || isPaused) return
+    const goToPrevious = useCallback(() => {
+      setCurrentIndex((prev) => {
+        if (orderedCompositions.length === 0) return prev
+        return (prev - 1 + orderedCompositions.length) % orderedCompositions.length
+      })
+    }, [orderedCompositions.length])
 
-    const timer = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % compositions.length)
-    }, slideInterval)
+    // Auto-advance slideshow
+    useEffect(() => {
+      if (orderedCompositions.length === 0 || isPaused) return
 
-    return () => clearInterval(timer)
-  }, [compositions.length, isPaused, slideInterval])
-
-  const goToNext = useCallback(() => {
-    setCurrentIndex((prev) => (prev + 1) % compositions.length)
-  }, [compositions.length])
-
-  const goToPrevious = useCallback(() => {
-    setCurrentIndex((prev) => (prev - 1 + compositions.length) % compositions.length)
-  }, [compositions.length])
-
-  const goToPhoto = useCallback((photoId: string) => {
-    // Find the composition that contains this photo
-    const index = compositions.findIndex(comp => 
-      comp.photos.some(p => p.id === photoId)
-    )
-    if (index >= 0) {
-      setCurrentIndex(index)
-    }
-  }, [compositions])
-
-  const pause = useCallback(() => {
-    setIsPaused(true)
-  }, [])
-
-  const resume = useCallback(() => {
-    setIsPaused(false)
-  }, [])
-
-  const getCurrentPhotoId = useCallback(() => {
-    return currentPhoto?.id || null
-  }, [currentPhoto])
-
-  // Expose methods via ref for external control
-  useImperativeHandle(ref, () => ({
-    goToPhoto,
-    goToNext,
-    pause,
-    resume,
-    getCurrentPhotoId,
-  }), [goToPhoto, goToNext, pause, resume, getCurrentPhotoId])
-
-  // Touch event handlers for swipe gestures
-  const onTouchStart = (e: React.TouchEvent) => {
-    setTouchEnd(null)
-    setTouchStart(e.targetTouches[0].clientX)
-  }
-
-  const onTouchMove = (e: React.TouchEvent) => {
-    setTouchEnd(e.targetTouches[0].clientX)
-  }
-
-  const onTouchEnd = () => {
-    if (!touchStart || !touchEnd) return
-
-    const distance = touchStart - touchEnd
-    const isLeftSwipe = distance > minSwipeDistance
-    const isRightSwipe = distance < -minSwipeDistance
-
-    if (isLeftSwipe) {
-      goToNext()
-    } else if (isRightSwipe) {
-      goToPrevious()
-    }
-  }
-
-  // Keyboard navigation support (for development/testing)
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') {
-        goToPrevious()
-      } else if (e.key === 'ArrowRight') {
+      const timer = setInterval(() => {
         goToNext()
-      } else if (e.key === ' ') {
-        e.preventDefault()
-        setIsPaused((prev) => !prev)
+      }, slideInterval)
+
+      return () => clearInterval(timer)
+    }, [orderedCompositions.length, isPaused, slideInterval, goToNext])
+
+    const goToPhoto = useCallback((photoId: string) => {
+      // Find the composition that contains this photo
+      const index = orderedCompositions.findIndex(comp => 
+        comp.photos.some(p => p.id === photoId)
+      )
+      if (index >= 0) {
+        setCurrentIndex(index)
+      }
+    }, [orderedCompositions])
+
+    const pause = useCallback(() => {
+      setIsPaused(true)
+    }, [])
+
+    const resume = useCallback(() => {
+      setIsPaused(false)
+    }, [])
+
+    const getCurrentPhotoId = useCallback(() => {
+      return currentPhoto?.id || null
+    }, [currentPhoto])
+
+    // Expose methods via ref for external control
+    useImperativeHandle(ref, () => ({
+      goToPhoto,
+      goToNext,
+      pause,
+      resume,
+      getCurrentPhotoId,
+    }), [goToPhoto, goToNext, pause, resume, getCurrentPhotoId])
+
+    // Touch event handlers for swipe gestures
+    const onTouchStart = (e: React.TouchEvent) => {
+      setTouchEnd(null)
+      setTouchStart(e.targetTouches[0].clientX)
+    }
+
+    const onTouchMove = (e: React.TouchEvent) => {
+      setTouchEnd(e.targetTouches[0].clientX)
+    }
+
+    const onTouchEnd = () => {
+      if (!touchStart || !touchEnd) return
+
+      const minSwipeDistance = 50
+      const distance = touchStart - touchEnd
+      const isLeftSwipe = distance > minSwipeDistance
+      const isRightSwipe = distance < -minSwipeDistance
+
+      if (isLeftSwipe) {
+        goToNext()
+      } else if (isRightSwipe) {
+        goToPrevious()
       }
     }
 
-    window.addEventListener('keydown', handleKeyPress)
-    return () => window.removeEventListener('keydown', handleKeyPress)
-  }, [goToNext, goToPrevious])
+    // Keyboard navigation support (for development/testing)
+    useEffect(() => {
+      const handleKeyPress = (e: KeyboardEvent) => {
+        if (e.key === 'ArrowLeft') {
+          goToPrevious()
+        } else if (e.key === 'ArrowRight') {
+          goToNext()
+        } else if (e.key === ' ') {
+          e.preventDefault()
+          setIsPaused((prev) => !prev)
+        }
+      }
 
-  if (compositions.length === 0) {
+      window.addEventListener('keydown', handleKeyPress)
+      return () => window.removeEventListener('keydown', handleKeyPress)
+    }, [goToNext, goToPrevious])
+
+    if (orderedCompositions.length === 0) {
+      return (
+        <div className="slideshow--no-photos">
+          No photos available
+        </div>
+      )
+    }
+
     return (
-      <div className="slideshow--no-photos">
-        No photos available
+      <div
+        className="slideshow"
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
+        <PhotoDisplay composition={currentComposition} fadeDuration={fadeDuration} />
+        
+        {/* Message overlay */}
+        {messageOverlay}
+        
+        {/* Metadata overlay */}
+        {showMetadata && currentPhoto && (
+          <MetadataOverlay
+            leftText={formatCaptureDate(currentPhoto.capturedAt)}
+            rightText={currentPhoto.location?.name || 'Location unknown'}
+          />
+        )}
       </div>
     )
   }
-
-  return (
-    <div
-      className="slideshow"
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-    >
-      <PhotoDisplay composition={currentComposition} fadeDuration={fadeDuration} />
-      
-      {/* Message overlay */}
-      {messageOverlay}
-      
-      {/* Metadata overlay */}
-      {showMetadata && <MetadataOverlay photo={currentPhoto} />}
-    </div>
-  )
-})
+)
 
 Slideshow.displayName = 'Slideshow'
 

@@ -466,7 +466,7 @@ function PhotoUploader() {
       )}
 
       {unprocessedBatches.length > 0 && !processingStatus.isProcessing && (
-        <div className='photo-uploader__batch-processing' style={{ marginTop: '20px', padding: '20px', border: '1px solid #ddd', borderRadius: '4px' }}>
+        <div className='photo-uploader__batch-processing'>
           <h3>Unprocessed Batches</h3>
           {unprocessedBatches.length === 1 ? (
             <div>
@@ -513,7 +513,7 @@ function PhotoUploader() {
       )}
 
       {processingStatus.isProcessing && (
-        <div className='photo-uploader__processing-status' style={{ marginTop: '20px', padding: '20px', border: '1px solid #4CAF50', borderRadius: '4px', backgroundColor: '#f0f8f0' }}>
+        <div className='photo-uploader__batch-processing'>
           <h3>Processing Photos</h3>
           {processingStatus.progress && (
             <div style={{ marginTop: '10px' }}>

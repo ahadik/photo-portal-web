@@ -1,0 +1,24 @@
+.mapview-crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 200px;
+  height: 200px;
+  pointer-events: none;
+  z-index: 500; /* Above map but below markers/controls */
+}
+
+/* Animate outer circle radius with snapping motion (fast transition) */
+.mapview-crosshair__outer-circle {
+  transition: r 0.1s ease-out;
+}
+
+.mapview-crosshair__outer-stroke {
+  transition: r 0.1s ease-out;
+}
+
+.mapview-crosshair__center-circle {
+  /* Center circle stays constant size, no transition needed */
+}
+

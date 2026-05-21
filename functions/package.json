@@ -9,7 +9,8 @@
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "seed-emulator": "npm run build && node lib/seed-emulator.js"
+    "seed-emulator": "npm run build && node lib/seed-emulator.js",
+    "reset": "npm run build && node lib/wipe-storage.js"
   },
   "engines": {
     "node": "24"

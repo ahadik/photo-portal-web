@@ -26,8 +26,7 @@ if (process.env.FUNCTIONS_EMULATOR === "true") {
 
 const storage = new Storage();
 
-const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN;
-
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 
 /**
  * Generate the correct Storage URL based on environment (emulator vs
@@ -53,7 +52,8 @@ function getStorageUrl(bucket: string, path: string): string {
 }
 
 /**
- * Reverse geocode coordinates to get a location name using Mapbox API.
+ * Reverse geocode coordinates to get a location name using Google Maps
+ * Geocoding API.
  * @param {number} lat - Latitude.
  * @param {number} lon - Longitude.
  * @return {Promise<string | null>} Location name or null if not found.
@@ -62,19 +62,34 @@ async function reverseGeocode(
   lat: number,
   lon: number
 ): Promise<string | null> {
-  if (!MAPBOX_TOKEN) return null;
-  const url =
-    "https://api.mapbox.com/search/geocode/v6/reverse?" +
-    `longitude=${lon}8&latitude=${lat}&access_token=${MAPBOX_TOKEN}&` +
-    "limit=1&types=place";
+  if (!GOOGLE_MAPS_API_KEY) return null;
+
+  const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+  url.searchParams.set("latlng", `${lat},${lon}`);
+  url.searchParams.set("key", GOOGLE_MAPS_API_KEY);
+  url.searchParams.set(
+    "result_type",
+    "locality|administrative_area_level_1|country"
+  );
+
   try {
-    const res = await fetch(url);
+    const res = await fetch(url.toString());
     if (!res.ok) return null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = (await res.json()) as any;
-    const place = data.features?.[0]?.properties?.place_formatted as
-      string | undefined;
-    return place ?? null;
+    const data = (await res.json()) as {
+      status: string;
+      results?: Array<{
+        formatted_address?: string;
+      }>;
+    };
+
+    console.log("Reverse geocoding response:", data);
+
+    if (data.status !== "OK" || !data.results || data.results.length === 0) {
+      return null;
+    }
+
+    return data.results[0].formatted_address ?? null;
   } catch (err) {
     return null;
   }

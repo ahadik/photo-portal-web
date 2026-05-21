@@ -2,9 +2,10 @@ export const config = {
   mediaBucket: import.meta.env.VITE_MEDIA_BUCKET || 'photo-portal-media',
   dataBucket: import.meta.env.VITE_DATA_BUCKET || 'photo-portal-data',
   // Mapbox public access token for client-side map rendering only
-  // This should be a separate public token with URL restrictions (different from server-side MAPBOX_TOKEN)
-  // The server-side MAPBOX_TOKEN is used for geocoding and other billed features and should NOT be exposed
+  // This should be a separate public token with URL restrictions
   mapboxPublicToken: import.meta.env.VITE_MAPBOX_TOKEN || '',
+  // Google Maps API key for reverse geocoding (client-side)
+  googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '',
   photoSyncInterval: 60000, // 60 seconds
   messageSyncInterval: 30000, // 30 seconds
   slideshowInterval: 10000, // 10 seconds

@@ -370,6 +370,11 @@ npm run build
 - Check that the user is authenticated with the correct Firebase Auth account
 - Verify the email addresses in `storage.rules` match your Firebase Auth accounts
 
+## Documentation
+
+- **[Product Requirements](./docs/product_requirements.md)**: Complete product specification, architecture design, and feature requirements
+- **[Developer Resources](./docs/developer_resources.md)**: Technical documentation including grid system usage, styling guidelines, and component patterns
+
 ## License
 
 [Add your license here]

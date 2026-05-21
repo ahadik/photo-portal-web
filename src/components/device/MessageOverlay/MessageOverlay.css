@@ -1,20 +1,33 @@
 .message-overlay {
   position: absolute;
-  top: 0;
+  top: 30px;
+  width: 100%;
   left: 0;
   right: 0;
-  background-color: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(8px);
-  padding: 1.5rem 2rem;
   z-index: 1000;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-left: 30px;
+  padding-right: 30px;
+}
+
+.message-overlay__content {
+  position: relative;
+  width: fit-content;
+  border-radius: 100px;
+  margin-left: auto;
+  margin-right: auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  padding: 0 4rem;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 40px 0 rgba(255, 255, 255, 0.1);
 }
 
 
 .message-overlay__text {
   color: #fff;
-  font-size: 1.25rem;
-  line-height: 1.6;
   text-align: center;
   max-width: 1200px;
   margin: 0 auto;

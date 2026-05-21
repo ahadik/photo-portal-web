@@ -17,6 +17,7 @@ module.exports = {
     "public",
     "functions/**/*", // Functions has its own ESLint config
     "vite.config.ts", // Uses tsconfig.node.json, not included in main tsconfig
+    "postcss.config.cjs", // JavaScript config file, not TypeScript
   ],
   parser: "@typescript-eslint/parser",
   parserOptions: {

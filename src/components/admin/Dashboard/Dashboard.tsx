@@ -19,13 +19,13 @@ function Dashboard() {
         </button>
       </div>
 
-      <div className='dashboard__content'>
-        <div>
+      <div className='dashboard__content grid-container'>
+        <div className="col-mobile-12 col-tablet-6 col-desktop-6">
           <h2>Upload Photos</h2>
           <PhotoUploader />
         </div>
 
-        <div>
+        <div className="col-mobile-12 col-tablet-6 col-desktop-6">
           <h2>Send Message</h2>
           <MessageComposer />
         </div>

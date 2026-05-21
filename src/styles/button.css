@@ -21,6 +21,19 @@ button:not(:disabled):hover {
     transform: translateY(-2px);
 }
 
+.button--glow {
+    animation: glow 1s infinite;
+}
+
+@keyframes glow {
+    0% {
+        box-shadow: 0 0 10px 0 rgba(255, 255, 255, 0.5);
+    }
+    50% {
+        box-shadow: 0 0 20px 0 rgba(255, 255, 255, 0.5);
+    }
+}
+
 .button--submit {
     width: 100%;
     padding: 0.75rem;

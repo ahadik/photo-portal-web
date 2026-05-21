@@ -233,13 +233,16 @@ export default function PhotoDisplay({ composition, isLoading, fadeDuration = 10
     prevCompositionIdRef.current = compositionId
   }, [composition, fadeDuration])
 
-  const renderComposition = (comp: PhotoComposition | null, opacity: number) => {
+  const renderComposition = (comp: PhotoComposition | null, opacity: number, keyPrefix: string) => {
     if (!comp) return null
+
+    const compositionId = comp.photos.map(p => p.id).join('-')
+    const uniqueKey = `${keyPrefix}-${compositionId}`
 
     if (comp.type === 'single') {
       return (
         <div
-          key={comp.photos.map(p => p.id).join('-')}
+          key={uniqueKey}
           className='photo-display__mask'
           style={{
             opacity,
@@ -257,7 +260,7 @@ export default function PhotoDisplay({ composition, isLoading, fadeDuration = 10
     // comp.type === 'pair'
     return (
       <div
-        key={comp.photos.map(p => p.id).join('-')}
+        key={uniqueKey}
         className='photo-display__mask'
         style={{
           opacity,
@@ -282,8 +285,8 @@ export default function PhotoDisplay({ composition, isLoading, fadeDuration = 10
 
   return (
     <div className='photo-display photo-display--display'>
-      {renderComposition(currentComposition, currentOpacity)}
-      {renderComposition(nextComposition, nextOpacity)}
+      {renderComposition(currentComposition, currentOpacity, 'current')}
+      {renderComposition(nextComposition, nextOpacity, 'next')}
     </div>
   )
 }

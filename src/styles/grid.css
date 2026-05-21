@@ -1,0 +1,95 @@
+/* 12-Column Grid System - Mobile First Approach */
+
+/* CSS Custom Properties */
+:root {
+  --grid-gap-mobile: 1rem;    /* 16px */
+  --grid-gap-tablet: 1.25rem; /* 20px */
+  --grid-gap-desktop: 1.5rem; /* 24px */
+}
+
+/* Base Grid Container */
+.grid-container {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: var(--grid-gap-mobile);
+  width: 100%;
+}
+
+/* Responsive Gaps */
+@media (min-width: 768px) {
+  .grid-container {
+    gap: var(--grid-gap-tablet);
+  }
+}
+
+@media (min-width: 992px) {
+  .grid-container {
+    gap: var(--grid-gap-desktop);
+  }
+}
+
+/* Mobile Column Spans (default, applies to all screen sizes) */
+.col-mobile-1 { grid-column: span 1; }
+.col-mobile-2 { grid-column: span 2; }
+.col-mobile-3 { grid-column: span 3; }
+.col-mobile-4 { grid-column: span 4; }
+.col-mobile-5 { grid-column: span 5; }
+.col-mobile-6 { grid-column: span 6; }
+.col-mobile-7 { grid-column: span 7; }
+.col-mobile-8 { grid-column: span 8; }
+.col-mobile-9 { grid-column: span 9; }
+.col-mobile-10 { grid-column: span 10; }
+.col-mobile-11 { grid-column: span 11; }
+.col-mobile-12 { grid-column: span 12; }
+
+/* Tablet Column Spans (applies at ≥768px) */
+@media (min-width: 768px) {
+  .col-tablet-1 { grid-column: span 1; }
+  .col-tablet-2 { grid-column: span 2; }
+  .col-tablet-3 { grid-column: span 3; }
+  .col-tablet-4 { grid-column: span 4; }
+  .col-tablet-5 { grid-column: span 5; }
+  .col-tablet-6 { grid-column: span 6; }
+  .col-tablet-7 { grid-column: span 7; }
+  .col-tablet-8 { grid-column: span 8; }
+  .col-tablet-9 { grid-column: span 9; }
+  .col-tablet-10 { grid-column: span 10; }
+  .col-tablet-11 { grid-column: span 11; }
+  .col-tablet-12 { grid-column: span 12; }
+}
+
+/* Desktop Column Spans (applies at ≥992px) */
+@media (min-width: 992px) {
+  .col-desktop-1 { grid-column: span 1; }
+  .col-desktop-2 { grid-column: span 2; }
+  .col-desktop-3 { grid-column: span 3; }
+  .col-desktop-4 { grid-column: span 4; }
+  .col-desktop-5 { grid-column: span 5; }
+  .col-desktop-6 { grid-column: span 6; }
+  .col-desktop-7 { grid-column: span 7; }
+  .col-desktop-8 { grid-column: span 8; }
+  .col-desktop-9 { grid-column: span 9; }
+  .col-desktop-10 { grid-column: span 10; }
+  .col-desktop-11 { grid-column: span 11; }
+  .col-desktop-12 { grid-column: span 12; }
+}
+
+/* Full Width Utility */
+.col-full {
+  grid-column: span 12;
+}
+
+/* Responsive Container Max-Width (for better desktop experience) */
+.grid-container--max-width {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Simple Container (for non-grid containers) */
+.container {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 2rem;
+}
+

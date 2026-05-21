@@ -6,7 +6,6 @@
 }
 
 .dashboard__content {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2rem;
+  /* Grid system is now handled by grid-container class */
+  /* Column spans are handled by utility classes in the TSX */
 }

@@ -5,6 +5,9 @@ import { config } from '~/config'
 import { PhotoEntry } from '~/types'
 import { usePhotoUrls } from '~/contexts/PhotoUrlContext'
 import type { Feature, Point, Polygon } from 'geojson'
+import { reverseGeocode } from '~/services/api'
+import MapViewCrosshair from './MapViewCrosshair'
+import MetadataOverlay from '~/components/device/MetadataOverlay'
 
 import './MapView.css'
 
@@ -20,10 +23,12 @@ interface MapViewProps {
   photos: PhotoEntry[]
   zoomLevel?: number // Zoom level between 1-11, defaults to 2
   activeLocationFilter?: LocationFilter | null // Active bounding box filter
+  showMetadata?: boolean // Controls crosshair and metadata overlay visibility
 }
 
 export interface MapViewRef {
   getCurrentBounds: () => LocationFilter | null
+  centerOnCoordinates: (lat: number, lon: number, zoom?: number, allowZoom?: boolean) => void
 }
 
 /**
@@ -38,7 +43,7 @@ interface MarkersRef {
   eventHandlers: Array<() => void>
 }
 
-const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, activeLocationFilter = null }, ref) => {
+const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, activeLocationFilter = null, showMetadata = false }, ref) => {
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<mapboxgl.Map | null>(null)
   const markersRef = useRef<MarkersRef>({
@@ -49,6 +54,15 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, a
   })
   const { getThumbUrl } = usePhotoUrls()
   const [, setCurrentZoom] = useState<number>(zoomLevel)
+  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
+  type GeocodeResult = 'loading' | string | null
+  const [reverseGeocodeResult, setReverseGeocodeResult] = useState<GeocodeResult>(null)
+  const [photoCount, setPhotoCount] = useState<number>(0)
+  const [isMapInteracting, setIsMapInteracting] = useState<boolean>(false)
+  const geocodeTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const triggerGeocodeRef = useRef<((mapInstance: mapboxgl.Map) => void) | null>(null)
+  const zoomInteractionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Convert photos to GeoJSON features for Supercluster
   const createGeoJSONFeatures = useCallback((photosData: PhotoEntry[]) => {
@@ -173,10 +187,105 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, a
     }
   }, [])
 
+  // Count photos within current viewport bounds
+  const countPhotosInViewport = useCallback((mapInstance: mapboxgl.Map): number => {
+    const bounds = mapInstance.getBounds()
+    if (!bounds) return 0
+
+    return photos.filter(photo => {
+      if (!photo.location) return false
+      const lat = photo.location.lat
+      const lon = photo.location.lon
+      return (
+        lat >= bounds.getSouth() &&
+        lat <= bounds.getNorth() &&
+        lon >= bounds.getWest() &&
+        lon <= bounds.getEast()
+      )
+    }).length
+  }, [photos])
+
+  // Perform reverse geocoding of map center
+  const performReverseGeocode = useCallback(async (mapInstance: mapboxgl.Map) => {
+    if (!showMetadata) return
+    const center = mapInstance.getCenter()
+    const zoom = mapInstance.getZoom()
+
+    // Cancel any in-flight request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+
+    // Create new abort controller for this request
+    abortControllerRef.current = new AbortController()
+
+    setReverseGeocodeResult('loading')
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+      const locationName: string | null = await reverseGeocode(center.lng, center.lat, zoom)
+      // Only update if request wasn't aborted
+      if (!abortControllerRef.current.signal.aborted) {
+        setReverseGeocodeResult(locationName)
+      }
+    } catch (error) {
+      // Only update if request wasn't aborted
+      if (!abortControllerRef.current.signal.aborted) {
+        console.error('error', error)
+        setReverseGeocodeResult(null)
+      }
+    }
+  }, [showMetadata])
+
+  // Debounced geocoding trigger
+  const triggerGeocode = useCallback((mapInstance: mapboxgl.Map) => {
+    if (!showMetadata) {
+      setReverseGeocodeResult(null)
+      return
+    }
+
+    // Clear existing timeout
+    if (geocodeTimeoutRef.current) {
+      clearTimeout(geocodeTimeoutRef.current)
+    }
+
+    // Update photo count immediately
+    const count = countPhotosInViewport(mapInstance)
+    setPhotoCount(count)
+
+    // Set new timeout for geocoding
+    geocodeTimeoutRef.current = setTimeout(() => {
+      void performReverseGeocode(mapInstance)
+    }, 500)
+  }, [showMetadata, countPhotosInViewport, performReverseGeocode])
+
+  // Keep ref updated with latest triggerGeocode function
+  useEffect(() => {
+    triggerGeocodeRef.current = triggerGeocode
+  }, [triggerGeocode])
+
+  // Center map on coordinates
+  // If allowZoom is false, zoom level will not be set (hardware controls zoom)
+  const centerOnCoordinates = useCallback((lat: number, lon: number, zoom?: number, allowZoom: boolean = true) => {
+    if (!map.current) return
+    
+    const options: { center: [number, number]; zoom?: number } = {
+      center: [lon, lat],
+    }
+    
+    // Only set zoom if allowed (not when hardware is connected)
+    if (allowZoom && zoom !== undefined) {
+      options.zoom = Math.max(config.minZoomLevel, Math.min(config.maxZoomLevel, zoom))
+    }
+    
+    map.current.flyTo(options)
+  }, [])
+
   // Expose methods via ref
   useImperativeHandle(ref, () => ({
     getCurrentBounds,
-  }), [getCurrentBounds])
+    centerOnCoordinates,
+  }), [getCurrentBounds, centerOnCoordinates])
 
   // Update rectangle on map when filter changes
   const updateFilterRectangle = useCallback((mapInstance: mapboxgl.Map, bounds: LocationFilter | null) => {
@@ -385,6 +494,7 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, a
       center: [0, 0], // Center on world
       zoom: zoomLevel, // Zoom level to show entire world
       projection: 'mercator',
+      touchZoomRotate: false, // Disable touch zooming entirely
     })
 
     // Initialize current zoom state
@@ -401,25 +511,66 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, a
 
     const handleMoveEnd = () => {
       if (!map.current) return
+      setIsMapInteracting(false)
       updateClusters(map.current)
+      if (triggerGeocodeRef.current) {
+        triggerGeocodeRef.current(map.current)
+      }
     }
 
     const handleZoomEnd = () => {
       if (!map.current) return
+      setIsMapInteracting(false)
       updateClusters(map.current)
+      if (triggerGeocodeRef.current) {
+        triggerGeocodeRef.current(map.current)
+      }
+    }
+
+    const handleMove = () => {
+      if (!map.current) return
+      if (triggerGeocodeRef.current) {
+        triggerGeocodeRef.current(map.current)
+      }
+    }
+
+    const handleMoveStart = () => {
+      setIsMapInteracting(true)
+    }
+
+    const handleZoomStart = () => {
+      setIsMapInteracting(true)
+    }
+
+    const handleDragStart = () => {
+      setIsMapInteracting(true)
+    }
+
+    const handleDragEnd = () => {
+      setIsMapInteracting(false)
     }
 
     const mapInstance = map.current
 
     mapInstance.on('zoom', handleZoom)
+    mapInstance.on('zoomstart', handleZoomStart)
     mapInstance.on('zoomend', handleZoomEnd)
     mapInstance.on('moveend', handleMoveEnd)
+    mapInstance.on('movestart', handleMoveStart)
+    mapInstance.on('move', handleMove)
+    mapInstance.on('dragstart', handleDragStart)
+    mapInstance.on('dragend', handleDragEnd)
 
     // Store cleanup functions
     markersRef.current.eventHandlers.push(
       () => mapInstance.off('zoom', handleZoom),
+      () => mapInstance.off('zoomstart', handleZoomStart),
       () => mapInstance.off('zoomend', handleZoomEnd),
-      () => mapInstance.off('moveend', handleMoveEnd)
+      () => mapInstance.off('moveend', handleMoveEnd),
+      () => mapInstance.off('movestart', handleMoveStart),
+      () => mapInstance.off('move', handleMove),
+      () => mapInstance.off('dragstart', handleDragStart),
+      () => mapInstance.off('dragend', handleDragEnd)
     )
 
     // Initial cluster update once map is loaded
@@ -429,6 +580,10 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, a
         // Render filter rectangle if active
         if (activeLocationFilter) {
           updateFilterRectangle(map.current, activeLocationFilter)
+        }
+        // Trigger initial geocode if metadata is enabled
+        if (showMetadata && triggerGeocodeRef.current) {
+          triggerGeocodeRef.current(map.current)
         }
       }
     })
@@ -440,6 +595,22 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, a
       // eslint-disable-next-line react-hooks/exhaustive-deps
       const eventHandlers = [...markersRef.current.eventHandlers]
       const currentMap = map.current
+      
+      // Clear geocode timeout
+      if (geocodeTimeoutRef.current) {
+        clearTimeout(geocodeTimeoutRef.current)
+      }
+
+      // Clear zoom interaction timeout
+      const zoomTimeout = zoomInteractionTimeoutRef.current
+      if (zoomTimeout) {
+        clearTimeout(zoomTimeout)
+      }
+
+      // Abort any in-flight geocoding request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
       
       // Remove event listeners
       eventHandlers.forEach(cleanup => cleanup())
@@ -464,7 +635,7 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, a
     }
   }, [photos, createClusterIndex, updateClusters])
 
-  // Update zoom level when prop changes
+  // Update zoom level when prop changes (from hardware/virtual controls)
   useEffect(() => {
     if (!map.current) return
 
@@ -475,7 +646,34 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, a
     if (Math.abs(map.current.getZoom() - clampedZoom) > 0.01) {
       map.current.setZoom(clampedZoom)
       setCurrentZoom(clampedZoom)
+      
+      // Set interacting state when zoom changes via controls
+      setIsMapInteracting(true)
+      
+      // Clear existing timeout
+      const existingTimeout = zoomInteractionTimeoutRef.current
+      if (existingTimeout) {
+        clearTimeout(existingTimeout)
+      }
+      
+      // Set timeout to clear interacting state after zoom stops
+      // 300ms seems reasonable - allows for rapid zoom changes without flickering
+      const timeoutId = setTimeout(() => {
+        setIsMapInteracting(false)
+        zoomInteractionTimeoutRef.current = null
+      }, 300)
+      zoomInteractionTimeoutRef.current = timeoutId
+      
       // Clusters will be updated via zoomend event
+    }
+    
+    // Cleanup timeout on unmount or when zoomLevel changes
+    return () => {
+      const timeoutId = zoomInteractionTimeoutRef.current
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+        zoomInteractionTimeoutRef.current = null
+      }
     }
   }, [zoomLevel])
 
@@ -484,6 +682,38 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, a
     if (!map.current || !map.current.loaded()) return
     updateFilterRectangle(map.current, activeLocationFilter)
   }, [activeLocationFilter, updateFilterRectangle])
+
+  // Trigger geocoding when metadata toggle changes
+  useEffect(() => {
+    if (!map.current || !map.current.loaded()) return
+    
+    if (showMetadata) {
+      triggerGeocode(map.current)
+    } else {
+      // Clear geocode result when metadata is disabled
+      setReverseGeocodeResult(null)
+      // Clear timeout
+      if (geocodeTimeoutRef.current) {
+        clearTimeout(geocodeTimeoutRef.current)
+      }
+      // Abort any in-flight request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [showMetadata, triggerGeocode])
+
+  // Cleanup geocode timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (geocodeTimeoutRef.current) {
+        clearTimeout(geocodeTimeoutRef.current)
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+    }
+  }, [])
 
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
   const mapboxToken = config.mapboxPublicToken
@@ -508,7 +738,17 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, a
     <div
       ref={mapContainer}
       className="mapview"
-    />
+    >
+      {showMetadata && (
+        <>
+          <MapViewCrosshair visible={showMetadata} isInteracting={isMapInteracting} />
+          <MetadataOverlay
+            leftText={reverseGeocodeResult === 'loading' ? 'Loading...' : reverseGeocodeResult || 'unavailable'}
+            rightText={`Photos: ${photoCount}`}
+          />
+        </>
+      )}
+    </div>
   )
 })
 

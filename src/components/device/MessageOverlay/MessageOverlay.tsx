@@ -14,10 +14,12 @@ export default function MessageOverlay({ message }: MessageOverlayProps) {
     <div
       className="message-overlay"
     >
-      <div
-        className="message-overlay__text"
-      >
-        {message.text}
+      <div className="message-overlay__content">
+        <div
+          className="message-overlay__text"
+        >
+          <h1 className='message'>{message.text}</h1>
+        </div>
       </div>
     </div>
   )

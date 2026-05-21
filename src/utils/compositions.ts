@@ -13,6 +13,7 @@ export interface PhotoComposition {
 
 /**
  * Creates compositions from photos based on screen orientation and display rules.
+ * Ensures each photo appears in exactly one composition.
  * 
  * Rules:
  * - Screen is "landscape": 
@@ -36,16 +37,31 @@ export function createCompositions(
     return []
   }
 
+  // Deduplicate photos by ID to ensure each photo appears only once
+  const photoMap = new Map<string, PhotoEntry>()
+  for (const photo of photos) {
+    if (!photoMap.has(photo.id)) {
+      photoMap.set(photo.id, photo)
+    }
+  }
+  const uniquePhotos = Array.from(photoMap.values())
+
   const compositions: PhotoComposition[] = []
+  const usedPhotoIds = new Set<string>()
 
   if (screenOrientation === 'square') {
     // All photos display full bleed
-    for (const photo of photos) {
+    for (const photo of uniquePhotos) {
+      if (usedPhotoIds.has(photo.id)) {
+        console.warn(`Photo ${photo.id} already used in a composition, skipping`)
+        continue
+      }
       compositions.push({
         type: 'single',
         photos: [photo],
         displayMode: 'full-bleed',
       })
+      usedPhotoIds.add(photo.id)
     }
     return compositions
   }
@@ -56,7 +72,7 @@ export function createCompositions(
     const squarePhotos: PhotoEntry[] = []
     const portraitPhotos: PhotoEntry[] = []
 
-    for (const photo of photos) {
+    for (const photo of uniquePhotos) {
       const photoOrientation = getPhotoOrientation(photo.width, photo.height)
       if (photoOrientation === 'landscape') {
         landscapePhotos.push(photo)
@@ -69,38 +85,69 @@ export function createCompositions(
 
     // Landscape photos: full bleed
     for (const photo of landscapePhotos) {
+      if (usedPhotoIds.has(photo.id)) {
+        console.warn(`Photo ${photo.id} already used in a composition, skipping`)
+        continue
+      }
       compositions.push({
         type: 'single',
         photos: [photo],
         displayMode: 'full-bleed',
       })
+      usedPhotoIds.add(photo.id)
     }
 
     // Square photos: full bleed
     for (const photo of squarePhotos) {
+      if (usedPhotoIds.has(photo.id)) {
+        console.warn(`Photo ${photo.id} already used in a composition, skipping`)
+        continue
+      }
       compositions.push({
         type: 'single',
         photos: [photo],
         displayMode: 'full-bleed',
       })
+      usedPhotoIds.add(photo.id)
     }
 
     // Portrait photos: 2 side-by-side, or centered if only one
     for (let i = 0; i < portraitPhotos.length; i += 2) {
+      const photo1 = portraitPhotos[i]
+      if (!photo1 || usedPhotoIds.has(photo1.id)) {
+        console.warn(`Photo ${photo1?.id} already used in a composition, skipping`)
+        continue
+      }
+
       if (i + 1 < portraitPhotos.length) {
+        const photo2 = portraitPhotos[i + 1]
+        if (usedPhotoIds.has(photo2.id)) {
+          console.warn(`Photo ${photo2.id} already used in a composition, skipping pair`)
+          // Use photo1 as single instead
+          compositions.push({
+            type: 'single',
+            photos: [photo1],
+            displayMode: 'centered',
+          })
+          usedPhotoIds.add(photo1.id)
+          continue
+        }
         // Pair of photos side-by-side
         compositions.push({
           type: 'pair',
-          photos: [portraitPhotos[i], portraitPhotos[i + 1]],
+          photos: [photo1, photo2],
           displayMode: 'side-by-side',
         })
+        usedPhotoIds.add(photo1.id)
+        usedPhotoIds.add(photo2.id)
       } else {
         // Single portrait photo, centered
         compositions.push({
           type: 'single',
-          photos: [portraitPhotos[i]],
+          photos: [photo1],
           displayMode: 'centered',
         })
+        usedPhotoIds.add(photo1.id)
       }
     }
 
@@ -113,7 +160,7 @@ export function createCompositions(
   const squarePhotos: PhotoEntry[] = []
   const portraitPhotos: PhotoEntry[] = []
 
-  for (const photo of photos) {
+  for (const photo of uniquePhotos) {
     const photoOrientation = getPhotoOrientation(photo.width, photo.height)
     if (photoOrientation === 'portrait') {
       portraitPhotos.push(photo)
@@ -126,38 +173,69 @@ export function createCompositions(
 
   // Portrait photos: full bleed
   for (const photo of portraitPhotos) {
+    if (usedPhotoIds.has(photo.id)) {
+      console.warn(`Photo ${photo.id} already used in a composition, skipping`)
+      continue
+    }
     compositions.push({
       type: 'single',
       photos: [photo],
       displayMode: 'full-bleed',
     })
+    usedPhotoIds.add(photo.id)
   }
 
   // Square photos: full bleed
   for (const photo of squarePhotos) {
+    if (usedPhotoIds.has(photo.id)) {
+      console.warn(`Photo ${photo.id} already used in a composition, skipping`)
+      continue
+    }
     compositions.push({
       type: 'single',
       photos: [photo],
       displayMode: 'full-bleed',
     })
+    usedPhotoIds.add(photo.id)
   }
 
   // Landscape photos: 2 stacked vertically, or centered if only one
   for (let i = 0; i < landscapePhotos.length; i += 2) {
+    const photo1 = landscapePhotos[i]
+    if (!photo1 || usedPhotoIds.has(photo1.id)) {
+      console.warn(`Photo ${photo1?.id} already used in a composition, skipping`)
+      continue
+    }
+
     if (i + 1 < landscapePhotos.length) {
+      const photo2 = landscapePhotos[i + 1]
+      if (usedPhotoIds.has(photo2.id)) {
+        console.warn(`Photo ${photo2.id} already used in a composition, skipping pair`)
+        // Use photo1 as single instead
+        compositions.push({
+          type: 'single',
+          photos: [photo1],
+          displayMode: 'centered',
+        })
+        usedPhotoIds.add(photo1.id)
+        continue
+      }
       // Pair of photos stacked
       compositions.push({
         type: 'pair',
-        photos: [landscapePhotos[i], landscapePhotos[i + 1]],
+        photos: [photo1, photo2],
         displayMode: 'stacked',
       })
+      usedPhotoIds.add(photo1.id)
+      usedPhotoIds.add(photo2.id)
     } else {
       // Single landscape photo, centered
       compositions.push({
         type: 'single',
-        photos: [landscapePhotos[i]],
+        photos: [photo1],
         displayMode: 'centered',
       })
+      usedPhotoIds.add(photo1.id)
     }
   }
 

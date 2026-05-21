@@ -70,7 +70,7 @@ function AdminApp() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', padding: '2rem' }}>
+    <div className="container" style={{ minHeight: '100vh', paddingTop: '2rem', paddingBottom: '2rem' }}>
       <Routes>
         <Route
           path="/login"

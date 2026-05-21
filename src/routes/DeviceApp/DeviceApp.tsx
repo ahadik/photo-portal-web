@@ -5,13 +5,14 @@ import { onAuthStateChanged, User } from 'firebase/auth'
 import { fetchPhotosIndex, fetchMessagesIndex } from '~/services/api'
 import { PhotoEntry, MessageEntry } from '~/types'
 import { config } from '~/config'
-import { syncReadMessageCache, getReadMessageIds, markMessageRead, getActiveLocationFilter, setActiveLocationFilter, clearActiveLocationFilter, toggleLike, getLikedPhotoIds } from '~/services/cache'
+import { syncReadMessageCache, getReadMessageIds, markMessageRead, getActiveLocationFilter, setActiveLocationFilter, clearActiveLocationFilter } from '~/services/cache'
 import { photoUrlStore } from '~/services/photoUrlStore'
 import { PhotoUrlProvider } from '~/contexts/PhotoUrlContext'
 import Slideshow, { SlideshowRef } from '~/components/device/Slideshow'
 import MessageOverlay from '~/components/device/MessageOverlay'
 import VirtualOverlay, { VirtualButtonEvent } from '~/components/device/VirtualOverlay'
 import MapView, { type MapViewRef } from '~/components/device/MapView'
+import DebugPanel from '~/components/device/DebugPanel'
 import Login from '~/components/admin/Login'
 import { useGPIO } from '~/hooks/useGPIO'
 
@@ -33,17 +34,23 @@ function DeviceApp() {
   const [photosLoading, setPhotosLoading] = useState(true)
   const [messages, setMessages] = useState<MessageEntry[]>([])
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false)
+  const [hasNewMessage, setHasNewMessage] = useState(false) // Track if there's a new message waiting (glowing state)
   const [activeMessage, setActiveMessage] = useState<MessageEntry | null>(null)
   const [showMetadata, setShowMetadata] = useState(false)
   const [showVirtualControls, setShowVirtualControls] = useState(false)
+  const [showDebugPanel, setShowDebugPanel] = useState(false)
   const [mapViewEnabled, setMapViewEnabled] = useState(false)
   const [mapZoomLevel, setMapZoomLevel] = useState<number>(2) // Initial zoom level matching MapView default
   const [activeLocationFilter, setActiveLocationFilterState] = useState<LocationFilterBounds | null>(null)
-  const [, setLikedPhotoIds] = useState<string[]>([]) // Track liked photos (may be used for UI feedback later)
+  const [currentPhotoId, setCurrentPhotoId] = useState<string | null>(null) // Track current photo ID even when slideshow is not rendered
   const slideshowRef = useRef<SlideshowRef>(null)
   const mapViewRef = useRef<MapViewRef>(null)
   const messageTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const isInitialLoad = useRef(true)
+  const sendEventRef = useRef<((event: { type: string; value?: unknown }) => void) | null>(null)
+  const hasCenteredOnPhotoRef = useRef(false) // Track if we've already centered on photo when switching to map view
+  const [virtualButtonEvents, setVirtualButtonEvents] = useState<VirtualButtonEvent[]>([])
+  const [remoteEvents, setRemoteEvents] = useState<Array<{ type: string; data?: unknown }>>([])
 
   // Handle GPIO ZOOM_DIAL events (when useGPIO is implemented)
   // This will be called by useGPIO hook when ZOOM_DIAL events are received
@@ -67,21 +74,23 @@ function DeviceApp() {
   }, [mapViewEnabled])
 
   // GPIO integration
-  const { setLedOn, setLedOff, virtualMode } = useGPIO({
-    onLikeButton: () => {
-      void handleSelectButton()
-    },
+  const { setLedOn, setLedOff, virtualMode, sendEvent, connected, wsMessages } = useGPIO({
     onMapToggle: (value) => {
       setMapViewEnabled(value === 'ON')
     },
-    onMetadataToggle: () => {
-      handleMetadataToggle()
+    onMetadataToggle: (value) => {
+      setShowMetadata(value === 'ON')
     },
-    onMessageButton: () => {
+    onSelectButton: () => {
       void handleMessageButton()
     },
     onZoomDial: handleZoomDialChange,
   })
+
+  // Store sendEvent in ref for use in callbacks
+  useEffect(() => {
+    sendEventRef.current = sendEvent as (event: { type: string; value?: unknown }) => void
+  }, [sendEvent])
 
   // Show virtual controls by default when in virtual mode
   useEffect(() => {
@@ -190,7 +199,30 @@ function DeviceApp() {
     try {
       const messagesData = await fetchMessagesIndex()
       const currentMessages = messagesData.messages || []
-      setMessages(currentMessages)
+      
+      // Check if there's a new message (not in previous messages list)
+      let hasNew = false
+      setMessages((prevMessages) => {
+        const prevMessageIds = new Set(prevMessages.map(m => m.id))
+        const newMessages = currentMessages.filter(m => !prevMessageIds.has(m.id))
+        
+        // If there's a new message, mark it for broadcasting
+        if (newMessages.length > 0 && prevMessages.length > 0) {
+          hasNew = true
+        }
+        
+        return currentMessages
+      })
+
+      // Broadcast MESSAGE_WAITING event if there's a new message
+      if (hasNew) {
+        setHasNewMessage(true)
+        if (sendEventRef.current) {
+          sendEventRef.current({ type: 'MESSAGE_WAITING', value: true })
+        }
+        // Track remote event for debug panel
+        setRemoteEvents((prev) => [...prev, { type: 'MESSAGE_WAITING', data: true }])
+      }
 
       // Sync read message cache (marks all existing messages as read if cache is empty)
       const messageIds = currentMessages.map(m => m.id)
@@ -208,6 +240,7 @@ function DeviceApp() {
   useEffect(() => {
     if (!user) {
       setHasUnreadMessages(false)
+      setHasNewMessage(false)
       setMessages([])
       return
     }
@@ -226,16 +259,23 @@ function DeviceApp() {
   }, [user, loadMessages])
 
   // Handle 'v' key press to toggle virtual controls overlay
+  // Handle 'd' key press to toggle debug panel
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      // Only toggle on 'v' key when on device route and user is authenticated
+      // Ignore if typing in an input field
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return
+      }
+
+      // Toggle virtual controls on 'v'
       if (e.key === 'v' || e.key === 'V') {
-        // Ignore if typing in an input field
-        const target = e.target as HTMLElement
-        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
-          return
-        }
         setShowVirtualControls((prev) => !prev)
+      }
+
+      // Toggle debug panel on 'd'
+      if (e.key === 'd' || e.key === 'D') {
+        setShowDebugPanel((prev) => !prev)
       }
     }
 
@@ -243,54 +283,115 @@ function DeviceApp() {
     return () => window.removeEventListener('keydown', handleKeyPress)
   }, [])
 
-  // Handle message button press - show oldest unread message
+  // Handle message button press
+  // In Slideshow mode: show most recent message
+  // In Map view: set geo filter to current view
   const handleMessageButton = async () => {
-    if (!hasUnreadMessages || messages.length === 0) return
-
-    try {
-      // Get read message IDs
-      const readMessageIds = await getReadMessageIds()
+    if (mapViewEnabled) {
+      // Map view: set bounding box filter
+      // At zoom level 2 and below, clear filter instead (entire world view)
+      if (mapZoomLevel <= 2) {
+        try {
+          await clearActiveLocationFilter()
+          setActiveLocationFilterState(null)
+        } catch (err) {
+          console.error('Failed to clear location filter:', err)
+        }
+        return
+      }
       
-      // Find oldest unread message (sorted by sentAt)
-      const unreadMessages = messages
-        .filter(m => !readMessageIds.includes(m.id))
-        .sort((a, b) => new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime())
-
-      if (unreadMessages.length === 0) return
-
-      const messageToShow = unreadMessages[0]
-
-      // Mark message as read immediately
-      await markMessageRead(messageToShow.id)
-
-      // Refresh unread state after marking message as read
-      await loadMessages()
-
-      // Navigate slideshow to the photo referenced in the message
-      if (slideshowRef.current) {
-        slideshowRef.current.pause()
-        slideshowRef.current.goToPhoto(messageToShow.photoId)
+      if (!mapViewRef.current) return
+      
+      const bounds = mapViewRef.current.getCurrentBounds() as LocationFilterBounds | null
+      if (!bounds) return
+      
+      try {
+        await setActiveLocationFilter(bounds)
+        setActiveLocationFilterState(bounds)
+      } catch (err) {
+        console.error('Failed to set location filter:', err)
       }
-
-      // Show message overlay
-      setActiveMessage(messageToShow)
-
-      // Clear any existing timeout
-      if (messageTimeoutRef.current) {
-        clearTimeout(messageTimeoutRef.current)
-      }
-
-      // Hide message after configured duration and advance slideshow
-      messageTimeoutRef.current = setTimeout(() => {
+    } else {
+      // Slideshow mode: show most recent message
+      // If a message is already showing, clear it and resume slideshow
+      if (activeMessage) {
         setActiveMessage(null)
+        // Clear any existing timeout
+        if (messageTimeoutRef.current) {
+          clearTimeout(messageTimeoutRef.current)
+          messageTimeoutRef.current = null
+        }
+        // Resume slideshow
         if (slideshowRef.current) {
           slideshowRef.current.resume()
-          slideshowRef.current.goToNext()
         }
-        messageTimeoutRef.current = null
-      }, config.messageDisplayDuration)
-    } catch (err) {
-      console.error('Failed to handle message button:', err)
+        return
+      }
+
+      if (messages.length === 0) return
+
+      try {
+        // If a bounding box filter is active, clear it first
+        if (activeLocationFilter) {
+          try {
+            await clearActiveLocationFilter()
+            setActiveLocationFilterState(null)
+          } catch (err) {
+            console.error('Failed to clear location filter:', err)
+          }
+        }
+
+        // Find most recent message (sorted by sentAt, descending)
+        const sortedMessages = [...messages].sort(
+          (a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime()
+        )
+
+        if (sortedMessages.length === 0) return
+
+        const messageToShow = sortedMessages[0]
+
+        // If there's a new message waiting, broadcast MESSAGE_READ event
+        if (hasNewMessage) {
+          if (sendEventRef.current) {
+            sendEventRef.current({ type: 'MESSAGE_READ' })
+          }
+          setHasNewMessage(false)
+          // Track remote event for debug panel
+          setRemoteEvents((prev) => [...prev, { type: 'MESSAGE_READ' }])
+        }
+
+        // Mark message as read immediately
+        await markMessageRead(messageToShow.id)
+
+        // Refresh unread state after marking message as read
+        await loadMessages()
+
+        // Navigate slideshow to the photo referenced in the message
+        if (slideshowRef.current) {
+          slideshowRef.current.pause()
+          slideshowRef.current.goToPhoto(messageToShow.photoId)
+        }
+
+        // Show message overlay
+        setActiveMessage(messageToShow)
+
+        // Clear any existing timeout
+        if (messageTimeoutRef.current) {
+          clearTimeout(messageTimeoutRef.current)
+        }
+
+        // Hide message after configured duration and advance slideshow
+        messageTimeoutRef.current = setTimeout(() => {
+          setActiveMessage(null)
+          if (slideshowRef.current) {
+            slideshowRef.current.resume()
+            slideshowRef.current.goToNext()
+          }
+          messageTimeoutRef.current = null
+        }, config.messageDisplayDuration)
+      } catch (err) {
+        console.error('Failed to handle message button:', err)
+      }
     }
   }
 
@@ -342,19 +443,6 @@ function DeviceApp() {
     return () => clearInterval(intervalId)
   }, [])
 
-  // Load liked photo IDs from cache
-  useEffect(() => {
-    async function loadLikedPhotos() {
-      try {
-        const liked = await getLikedPhotoIds()
-        setLikedPhotoIds(liked)
-      } catch (err) {
-        console.error('Failed to load liked photos:', err)
-      }
-    }
-    void loadLikedPhotos()
-  }, [])
-
   // Filter photos based on bounding box
   const filterPhotosByBoundingBox = useCallback((photosToFilter: PhotoEntry[], bounds: LocationFilterBounds | null): PhotoEntry[] => {
     if (!bounds) return photosToFilter
@@ -372,75 +460,98 @@ function DeviceApp() {
     })
   }, [])
 
-  // Handle Select button (like in slideshow, filter in mapview)
-  const handleSelectButton = async () => {
-    if (mapViewEnabled) {
-      // Map view: set bounding box filter
-      // At zoom level 2 and below, clear filter instead (entire world view)
-      if (mapZoomLevel <= 2) {
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-          await clearActiveLocationFilter()
-          setActiveLocationFilterState(null)
-        } catch (err) {
-          console.error('Failed to clear location filter:', err)
-        }
+  // Sync current photo ID from slideshow when it's available
+  useEffect(() => {
+    if (mapViewEnabled) return // Don't sync when in map view (slideshow not rendered)
+    
+    const intervalId = setInterval(() => {
+      const photoId = slideshowRef.current?.getCurrentPhotoId()
+      if (photoId) {
+        setCurrentPhotoId(photoId)
+      }
+    }, 500) // Check every 500ms
+    
+    // Also check immediately
+    const photoId = slideshowRef.current?.getCurrentPhotoId()
+    if (photoId) {
+      setCurrentPhotoId(photoId)
+    }
+    
+    return () => clearInterval(intervalId)
+  }, [mapViewEnabled])
+
+  // Center map on current photo when FIRST switching to map view
+  useEffect(() => {
+    if (!mapViewEnabled) {
+      // Reset the flag when switching away from map view
+      hasCenteredOnPhotoRef.current = false
+      return
+    }
+    
+    // Only center if we haven't already centered for this map view session
+    if (hasCenteredOnPhotoRef.current) return
+    
+    // Wait a bit for the map to initialize before centering
+    const timeoutId = setTimeout(() => {
+      const mapView = mapViewRef.current
+      if (!mapView) return
+      
+      // Mark that we've centered so we don't do it again
+      hasCenteredOnPhotoRef.current = true
+      
+      // Use stored current photo ID (from before switching to map view)
+      // Only allow zoom to be set if local server is NOT connected (hardware controls zoom when connected)
+      const allowZoom = !connected
+      
+      if (!currentPhotoId) {
+        // No current photo, center on San Francisco
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+        mapView.centerOnCoordinates(37.7749, -122.4194, 10, allowZoom)
         return
       }
       
-      if (!mapViewRef.current) return
-      
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
-      const bounds = mapViewRef.current.getCurrentBounds() as LocationFilterBounds | null
-      if (!bounds) return
-      
-      try {
+      // Find the photo in the photos array
+      const currentPhoto = photos.find(p => p.id === currentPhotoId)
+      if (!currentPhoto) {
+        // Photo not found, center on San Francisco
         // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-        await setActiveLocationFilter(bounds)
-        setActiveLocationFilterState(bounds)
-      } catch (err) {
-        console.error('Failed to set location filter:', err)
+        mapView.centerOnCoordinates(37.7749, -122.4194, 10, allowZoom)
+        return
       }
-    } else {
-      // Slideshow: toggle like for current photo
-      if (!slideshowRef.current) return
       
-      const currentPhotoId = slideshowRef.current.getCurrentPhotoId()
-      if (!currentPhotoId) return
-      
-      try {
-        const isLiked = await toggleLike(currentPhotoId)
-        // Update liked state
-        if (isLiked) {
-          setLikedPhotoIds(prev => [...prev, currentPhotoId])
-        } else {
-          setLikedPhotoIds(prev => prev.filter(id => id !== currentPhotoId))
-        }
-      } catch (err) {
-        console.error('Failed to toggle like:', err)
+      // If photo has location, center on it; otherwise center on San Francisco
+      if (currentPhoto.location) {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+        mapView.centerOnCoordinates(
+          currentPhoto.location.lat,
+          currentPhoto.location.lon,
+          10,
+          allowZoom
+        )
+      } else {
+        // Photo exists but has no location data, center on San Francisco
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+        mapView.centerOnCoordinates(37.7749, -122.4194, 10, allowZoom)
       }
-    }
-  }
-
-  // Handle metadata toggle
-  const handleMetadataToggle = () => {
-    setShowMetadata((prev) => !prev)
-  }
+    }, 100) // Small delay to ensure map is initialized
+    
+    return () => clearTimeout(timeoutId)
+  }, [mapViewEnabled, photos, connected, currentPhotoId])
 
   // Handle virtual button events
   const handleVirtualButtonEvent = (event: VirtualButtonEvent) => {
     console.log('Virtual button event:', event)
+    // Track virtual button event for debug panel
+    setVirtualButtonEvents((prev) => [...prev, event])
+    
     switch (event.type) {
-      case 'LIKE_BUTTON':
-        void handleSelectButton()
-        break
       case 'MAP_TOGGLE':
         setMapViewEnabled(event.value === 'ON')
         break
       case 'METADATA_TOGGLE':
-        void handleMetadataToggle()
+        setShowMetadata(event.value === 'ON')
         break
-      case 'MESSAGE_BUTTON':
+      case 'SELECT_BUTTON':
         void handleMessageButton()
         break
       case 'ZOOM_DIAL':
@@ -494,46 +605,67 @@ function DeviceApp() {
 
   return (
     <PhotoUrlProvider>
-      <div className='device-app'>
-        <Routes>
-          <Route path="/" element={
-            mapViewEnabled ? (
-              <MapView 
-                ref={mapViewRef}
-                photos={photos} 
-                zoomLevel={mapZoomLevel}
-                activeLocationFilter={activeLocationFilter}
-              />
-            ) : photosLoading ? (
-              <div className='device-app__status-message'>
-                <p>Loading photos and URLs...</p>
-              </div>
-            ) : (
-              <div className='device-app__slideshow-container'>
-                <Slideshow
-                  ref={slideshowRef}
-                  photos={slideshowPhotos}
-                  messageOverlay={activeMessage ? <MessageOverlay message={activeMessage} /> : null}
-                  showMetadata={showMetadata}
-                  fadeDuration={config.fadeDuration}
-                />
-              </div>
-            )
-          } />
-        </Routes>
-        
-        {/* Virtual button overlay for testing without hardware */}
-        {showVirtualControls && (
-          <VirtualOverlay
-            onEvent={handleVirtualButtonEvent}
-            onClose={() => setShowVirtualControls(false)}
-            hasUnreadMessages={hasUnreadMessages}
-            showMetadata={showMetadata}
-            mapViewEnabled={mapViewEnabled}
-            zoomLevel={mapZoomLevel}
-            onZoomChange={handleZoomDialChange}
-          />
-        )}
+      <div className="device-app">
+        <div className={`device-app__content ${showDebugPanel ? 'device-app__content--debug-open' : ''}`}>
+          <div className="device-app__content-frame">
+            <Routes>
+              <Route path="/" element={
+                mapViewEnabled ? (
+                  <MapView 
+                    ref={mapViewRef}
+                    photos={photos} 
+                    zoomLevel={mapZoomLevel}
+                    activeLocationFilter={activeLocationFilter}
+                    showMetadata={showMetadata}
+                  />
+                ) : photosLoading ? (
+                  <div className='device-app__status-message'>
+                    <p>Loading photos and URLs...</p>
+                  </div>
+                ) : (
+                  <div className='device-app__slideshow-container'>
+                    <Slideshow
+                      ref={slideshowRef}
+                      photos={slideshowPhotos}
+                      messageOverlay={activeMessage ? <MessageOverlay message={activeMessage} /> : null}
+                      showMetadata={showMetadata}
+                      fadeDuration={config.fadeDuration}
+                    />
+                  </div>
+                )
+              } />
+            </Routes>
+          </div>
+          
+          {/* Virtual button overlay for testing without hardware */}
+          {showVirtualControls && (
+            <VirtualOverlay
+              onEvent={handleVirtualButtonEvent}
+              onClose={() => setShowVirtualControls(false)}
+              hasNewMessage={hasNewMessage}
+              showMetadata={showMetadata}
+              mapViewEnabled={mapViewEnabled}
+              zoomLevel={mapZoomLevel}
+              onZoomChange={handleZoomDialChange}
+              serverConnected={connected}
+            />
+          )}
+        </div>
+
+        {/* Debug panel */}
+        <DebugPanel
+          isOpen={showDebugPanel}
+          onClose={() => {
+            setShowDebugPanel(false)
+            // Clear events when panel closes
+            setVirtualButtonEvents([])
+            setRemoteEvents([])
+          }}
+          serverConnected={connected}
+          virtualButtonEvents={virtualButtonEvents}
+          wsMessages={wsMessages as Array<{ direction: 'in' | 'out'; type: string; data?: unknown }>}
+          remoteEvents={remoteEvents}
+        />
       </div>
     </PhotoUrlProvider>
   )
