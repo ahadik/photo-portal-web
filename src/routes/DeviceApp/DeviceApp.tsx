@@ -1,11 +1,17 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { Routes, Route } from 'react-router-dom'
-import { auth } from '~/services/firebase'
-import { onAuthStateChanged, User } from 'firebase/auth'
 import { fetchPhotosIndex, fetchMessagesIndex } from '~/services/api'
 import { PhotoEntry, MessageEntry } from '~/types'
 import { config } from '~/config'
-import { syncReadMessageCache, getReadMessageIds, markMessageRead, getActiveLocationFilter, setActiveLocationFilter, clearActiveLocationFilter } from '~/services/cache'
+import {
+  syncReadMessageCache,
+  getReadMessageIds,
+  markMessageRead,
+  getActiveLocationFilter,
+  setActiveLocationFilter,
+  clearActiveLocationFilter,
+  LocationFilterBounds,
+} from '~/services/cache'
 import { photoUrlStore } from '~/services/photoUrlStore'
 import { PhotoUrlProvider } from '~/contexts/PhotoUrlContext'
 import Slideshow, { SlideshowRef } from '~/components/device/Slideshow'
@@ -14,22 +20,14 @@ import VirtualOverlay, { VirtualButtonEvent } from '~/components/device/VirtualO
 import MapView, { type MapViewRef } from '~/components/device/MapView'
 import DebugPanel from '~/components/device/DebugPanel'
 import Login from '~/components/admin/Login'
+import WrongAccount from '~/components/WrongAccount'
 import { useGPIO } from '~/hooks/useGPIO'
+import { useAuthUser } from '~/hooks/useAuthUser'
 
 import './DeviceApp.css'
 
-// Define type to avoid 'any' union type error
-type LocationFilterBounds = {
-  north: number
-  south: number
-  east: number
-  west: number
-}
-
 function DeviceApp() {
-  const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
+  const { user, loading, error } = useAuthUser()
   const [photos, setPhotos] = useState<PhotoEntry[]>([])
   const [photosLoading, setPhotosLoading] = useState(true)
   const [messages, setMessages] = useState<MessageEntry[]>([])
@@ -108,34 +106,6 @@ function DeviceApp() {
     }
   }, [hasUnreadMessages, setLedOn, setLedOff])
 
-  // Use Firebase's onAuthStateChanged directly (more reliable than react-firebase-hooks)
-  useEffect(() => {
-    setLoading(true)
-    
-    const unsubscribe = onAuthStateChanged(
-      auth,
-      (user) => {
-        setUser(user)
-        setError(null)
-        setLoading(false)
-      },
-      (error) => {
-        console.error('Auth error:', error)
-        setError(error)
-        setLoading(false)
-      }
-    )
-
-    // Check current user immediately (before waiting for listener)
-    const currentUser = auth.currentUser
-    if (currentUser) {
-      setUser(currentUser)
-      setLoading(false)
-    }
-
-    return () => unsubscribe()
-  }, [])
-
   // Fetch photos and photo URLs (blocking on initial load, incremental on updates)
   useEffect(() => {
     if (!user) {
@@ -172,9 +142,9 @@ function DeviceApp() {
         }
       } catch (err) {
         console.error('Failed to load photos:', err)
-        // Only set error on initial load to avoid disrupting slideshow
+        // Only clear the loading state on initial load to avoid disrupting slideshow.
+        // Subsequent failures retry on the next poll.
         if (isInitialLoad.current) {
-          setError(err instanceof Error ? err : new Error('Failed to load photos'))
           setPhotosLoading(false)
         }
       }
@@ -194,25 +164,21 @@ function DeviceApp() {
     }
   }, [user])
 
+  const previousMessageIdsRef = useRef<Set<string> | null>(null)
+
   // Fetch messages and track unread state
   const loadMessages = useCallback(async () => {
     try {
       const messagesData = await fetchMessagesIndex()
       const currentMessages = messagesData.messages || []
-      
-      // Check if there's a new message (not in previous messages list)
-      let hasNew = false
-      setMessages((prevMessages) => {
-        const prevMessageIds = new Set(prevMessages.map(m => m.id))
-        const newMessages = currentMessages.filter(m => !prevMessageIds.has(m.id))
-        
-        // If there's a new message, mark it for broadcasting
-        if (newMessages.length > 0 && prevMessages.length > 0) {
-          hasNew = true
-        }
-        
-        return currentMessages
-      })
+
+      // Detect newly arrived messages (skip on the very first load)
+      const previousIds = previousMessageIdsRef.current
+      const currentIds = new Set(currentMessages.map(m => m.id))
+      const hasNew = previousIds !== null && currentMessages.some(m => !previousIds.has(m.id))
+      previousMessageIdsRef.current = currentIds
+
+      setMessages(currentMessages)
 
       // Broadcast MESSAGE_WAITING event if there's a new message
       if (hasNew) {
@@ -242,6 +208,7 @@ function DeviceApp() {
       setHasUnreadMessages(false)
       setHasNewMessage(false)
       setMessages([])
+      previousMessageIdsRef.current = null
       return
     }
 
@@ -404,43 +371,45 @@ function DeviceApp() {
     }
   }, [])
 
-  // Load active location filter from cache and check expiration
+  // Load active location filter from cache, and schedule its expiry (12 hours from setAt)
   useEffect(() => {
+    const FILTER_TTL_MS = 12 * 60 * 60 * 1000
+    let expireTimeoutId: ReturnType<typeof setTimeout> | null = null
+
     async function loadFilter() {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
-        const filter = await getActiveLocationFilter() as { bounds: LocationFilterBounds; setAt: string } | null
-        if (filter) {
-          // Check if filter is expired (>12 hours)
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-member-access
-          const setAtTime = new Date(filter.setAt).getTime()
-          const now = Date.now()
-          const twelveHours = 12 * 60 * 60 * 1000
-          
-          if (now - setAtTime > twelveHours) {
-            // Filter expired, clear it
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+        const filter = await getActiveLocationFilter()
+        if (!filter) {
+          setActiveLocationFilterState(null)
+          return
+        }
+
+        const setAtTime = new Date(filter.setAt).getTime()
+        const ageMs = Date.now() - setAtTime
+
+        if (ageMs >= FILTER_TTL_MS) {
+          await clearActiveLocationFilter()
+          setActiveLocationFilterState(null)
+          return
+        }
+
+        setActiveLocationFilterState(filter.bounds)
+        // Schedule a single timeout to clear the filter when it expires
+        expireTimeoutId = setTimeout(() => {
+          void (async () => {
             await clearActiveLocationFilter()
             setActiveLocationFilterState(null)
-          } else {
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-            setActiveLocationFilterState(filter.bounds)
-          }
-        } else {
-          setActiveLocationFilterState(null)
-        }
+          })()
+        }, FILTER_TTL_MS - ageMs)
       } catch (err) {
         console.error('Failed to load location filter:', err)
       }
     }
     void loadFilter()
-    
-    // Check for expiration periodically (every hour)
-    const intervalId = setInterval(() => {
-      void loadFilter()
-    }, 60 * 60 * 1000)
-    
-    return () => clearInterval(intervalId)
+
+    return () => {
+      if (expireTimeoutId) clearTimeout(expireTimeoutId)
+    }
   }, [])
 
   // Filter photos based on bounding box
@@ -459,26 +428,6 @@ function DeviceApp() {
       )
     })
   }, [])
-
-  // Sync current photo ID from slideshow when it's available
-  useEffect(() => {
-    if (mapViewEnabled) return // Don't sync when in map view (slideshow not rendered)
-    
-    const intervalId = setInterval(() => {
-      const photoId = slideshowRef.current?.getCurrentPhotoId()
-      if (photoId) {
-        setCurrentPhotoId(photoId)
-      }
-    }, 500) // Check every 500ms
-    
-    // Also check immediately
-    const photoId = slideshowRef.current?.getCurrentPhotoId()
-    if (photoId) {
-      setCurrentPhotoId(photoId)
-    }
-    
-    return () => clearInterval(intervalId)
-  }, [mapViewEnabled])
 
   // Center map on current photo when FIRST switching to map view
   useEffect(() => {
@@ -505,23 +454,20 @@ function DeviceApp() {
       
       if (!currentPhotoId) {
         // No current photo, center on San Francisco
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
         mapView.centerOnCoordinates(37.7749, -122.4194, 10, allowZoom)
         return
       }
-      
+
       // Find the photo in the photos array
       const currentPhoto = photos.find(p => p.id === currentPhotoId)
       if (!currentPhoto) {
         // Photo not found, center on San Francisco
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
         mapView.centerOnCoordinates(37.7749, -122.4194, 10, allowZoom)
         return
       }
-      
+
       // If photo has location, center on it; otherwise center on San Francisco
       if (currentPhoto.location) {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
         mapView.centerOnCoordinates(
           currentPhoto.location.lat,
           currentPhoto.location.lon,
@@ -530,7 +476,6 @@ function DeviceApp() {
         )
       } else {
         // Photo exists but has no location data, center on San Francisco
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
         mapView.centerOnCoordinates(37.7749, -122.4194, 10, allowZoom)
       }
     }, 100) // Small delay to ensure map is initialized
@@ -598,7 +543,17 @@ function DeviceApp() {
   if (!user) {
     return (
       <div className='device-app'>
-        <Login />
+        <Login title="Photo Portal Device Access" />
+      </div>
+    )
+  }
+
+  // Block users signed in with the wrong account before they hit a Storage
+  // permission error. Skipped if VITE_DEVICE_EMAIL is unset (server rules still apply).
+  if (config.deviceEmail && user.email !== config.deviceEmail) {
+    return (
+      <div className='device-app'>
+        <WrongAccount expected="device" actualEmail={user.email} />
       </div>
     )
   }
@@ -630,6 +585,7 @@ function DeviceApp() {
                       messageOverlay={activeMessage ? <MessageOverlay message={activeMessage} /> : null}
                       showMetadata={showMetadata}
                       fadeDuration={config.fadeDuration}
+                      onPhotoChange={setCurrentPhotoId}
                     />
                   </div>
                 )

@@ -52,104 +52,61 @@ class PhotoUrlStoreService {
   }
 
   /**
-   * Fetch download URLs for all photos (blocking)
-   * This should be called on app initialization
+   * Resolve download URLs for the given photos in parallel. Failures are
+   * logged and skipped so one bad photo doesn't break the rest.
+   */
+  private async resolveUrls(photos: PhotoEntry[]): Promise<Map<string, PhotoUrls>> {
+    const resolved = new Map<string, PhotoUrls>()
+    await Promise.all(photos.map(async (photo) => {
+      try {
+        const [photoUrl, thumbUrl] = await Promise.all([
+          getPhotoDownloadUrl(photo.id),
+          getThumbnailDownloadUrl(photo.id),
+        ])
+        resolved.set(photo.id, { photoUrl, thumbUrl })
+      } catch (error) {
+        console.error(`Failed to load URLs for photo ${photo.id}:`, error)
+      }
+    }))
+    return resolved
+  }
+
+  /**
+   * Fetch download URLs for all photos (blocking, replaces any cached URLs).
+   * Use on app initialization or when the entire photo set may have changed.
    */
   async fetchAllPhotoUrls(photos: PhotoEntry[]): Promise<void> {
     if (photos.length === 0) {
-      this.updateStore({
-        photoUrls: new Map(),
-        isLoading: false,
-        error: null,
-      })
+      this.updateStore({ photoUrls: new Map(), isLoading: false, error: null })
       return
     }
 
     this.updateStore({ isLoading: true, error: null })
 
     try {
-      const urlMap = new Map<string, PhotoUrls>()
-
-      // Fetch all URLs in parallel with progress tracking
-      const promises = photos.map(async (photo) => {
-        try {
-          const [photoUrl, thumbUrl] = await Promise.all([
-            getPhotoDownloadUrl(photo.id),
-            getThumbnailDownloadUrl(photo.id),
-          ])
-          urlMap.set(photo.id, { photoUrl, thumbUrl })
-        } catch (error) {
-          console.error(`Failed to load URLs for photo ${photo.id}:`, error)
-          // Continue with other photos even if one fails
-          // We could optionally store partial data here
-        }
-      })
-
-      await Promise.all(promises)
-
-      this.updateStore({
-        photoUrls: urlMap,
-        isLoading: false,
-        error: null,
-      })
+      const urlMap = await this.resolveUrls(photos)
+      this.updateStore({ photoUrls: urlMap, isLoading: false, error: null })
     } catch (error) {
       const errorObj = error instanceof Error ? error : new Error('Failed to fetch photo URLs')
-      this.updateStore({
-        isLoading: false,
-        error: errorObj,
-      })
+      this.updateStore({ isLoading: false, error: errorObj })
       throw errorObj
     }
   }
 
   /**
-   * Fetch download URLs for new photos only (incremental update)
-   * Compares current photos with stored URLs and fetches missing ones
+   * Fetch URLs for any photos not already in the store; leaves existing entries
+   * untouched. Use for incremental updates while the slideshow keeps running.
    */
   async fetchNewPhotoUrls(photos: PhotoEntry[]): Promise<void> {
-    if (photos.length === 0) {
-      return
-    }
+    const photosToFetch = photos.filter(photo => !this.store.photoUrls.has(photo.id))
+    if (photosToFetch.length === 0) return
 
-    // Find photos that don't have URLs yet
-    const photosToFetch = photos.filter(
-      photo => !this.store.photoUrls.has(photo.id)
-    )
+    const newUrls = await this.resolveUrls(photosToFetch)
+    if (newUrls.size === 0) return
 
-    if (photosToFetch.length === 0) {
-      // All URLs already exist
-      return
-    }
-
-    // Fetch URLs for new photos only
-    const newUrlMap = new Map<string, PhotoUrls>()
-
-    const promises = photosToFetch.map(async (photo) => {
-      try {
-        const [photoUrl, thumbUrl] = await Promise.all([
-          getPhotoDownloadUrl(photo.id),
-          getThumbnailDownloadUrl(photo.id),
-        ])
-        newUrlMap.set(photo.id, { photoUrl, thumbUrl })
-      } catch (error) {
-        console.error(`Failed to load URLs for photo ${photo.id}:`, error)
-        // Continue with other photos even if one fails
-      }
-    })
-
-    await Promise.all(promises)
-
-    if (newUrlMap.size > 0) {
-      // Merge new URLs into existing store
-      const updatedMap = new Map(this.store.photoUrls)
-      newUrlMap.forEach((urls, photoId) => {
-        updatedMap.set(photoId, urls)
-      })
-
-      this.updateStore({
-        photoUrls: updatedMap,
-      })
-    }
+    const merged = new Map(this.store.photoUrls)
+    newUrls.forEach((urls, photoId) => merged.set(photoId, urls))
+    this.updateStore({ photoUrls: merged })
   }
 
   /**

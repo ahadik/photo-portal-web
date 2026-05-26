@@ -222,7 +222,7 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, a
     setReverseGeocodeResult('loading')
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+       
       const locationName: string | null = await reverseGeocode(center.lng, center.lat, zoom)
       // Only update if request wasn't aborted
       if (!abortControllerRef.current.signal.aborted) {
@@ -389,13 +389,13 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, a
       if (!coordinates || coordinates.length < 2) return
 
       const [clusterLon, clusterLat] = coordinates as [number, number]
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, react/prop-types
+       
       const props = cluster.properties as Record<string, unknown>
       if (!props) return
 
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, react/prop-types
+      // eslint-disable-next-line react/prop-types
       const isCluster = props.cluster === true
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, react/prop-types
+      // eslint-disable-next-line react/prop-types
       const pointCount = typeof props.point_count === 'number' ? props.point_count : undefined
 
       let markerElement: HTMLElement
@@ -409,9 +409,9 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, a
         const leaves = markersRef.current.clusterIndex!.getLeaves(cluster.id, Infinity)
         photoIds = leaves
           .map(leaf => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, react/prop-types
+             
             const leafProps = leaf.properties as Record<string, unknown> | null
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+             
             return leafProps && typeof leafProps.photoId === 'string' ? leafProps.photoId : null
           })
           .filter((id): id is string => id !== null)
@@ -426,16 +426,16 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, a
         if (zoom >= 6) {
           // Bubble marker for clusters at zoom >= 6
           const thumbnailUrl = selectedPhoto ? getThumbUrl(selectedPhoto.id) : undefined
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+           
           markerElement = createBubbleMarkerElement(thumbnailUrl || undefined, pointCount)
         } else {
           // Pin marker for clusters at zoom < 6
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+           
           markerElement = createPinMarkerElement(pointCount)
         }
       } else {
         // It's a single point
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, react/prop-types
+        // eslint-disable-next-line react/prop-types
         const photoId = typeof props.photoId === 'string' ? props.photoId : undefined
         if (!photoId) return
 
@@ -475,7 +475,7 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, a
   useEffect(() => {
     if (!mapContainer.current) return
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+     
     const mapboxToken = config.mapboxPublicToken
     if (!mapboxToken) {
       console.error('MapBox public token is not configured. Set VITE_MAPBOX_TOKEN environment variable.')
@@ -483,11 +483,11 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, a
     }
 
     // Set MapBox access token
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+     
     mapboxgl.accessToken = mapboxToken
 
     // Initialize map
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+     
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
       style: 'mapbox://styles/ahadik/cmiy58cjz002a01sl6hfld8ku', // Default MapBox style
@@ -715,7 +715,7 @@ const MapView = forwardRef<MapViewRef, MapViewProps>(({ photos, zoomLevel = 2, a
     }
   }, [])
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+   
   const mapboxToken = config.mapboxPublicToken
 
   if (!mapboxToken) {

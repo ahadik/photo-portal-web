@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "photo-portal-480304"
-  }
+    "default": "photo-portal-480304",
+    "photo-portal": "photo-portal-480304"
+  },
+  "targets": {},
+  "etags": {}
 }

@@ -75,7 +75,7 @@ async function reverseGeocode(
   try {
     const res = await fetch(url.toString());
     if (!res.ok) return null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const data = (await res.json()) as {
       status: string;
       results?: Array<{

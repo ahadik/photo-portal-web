@@ -16,14 +16,18 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
+// Use the hostname the page was served from so emulator connections work
+// over LAN (e.g. when loading the dev server from another device).
+const emulatorHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+
 // Helper function to create and connect storage instance to emulator
 function createStorageInstance(bucket?: string) {
   const instance = bucket ? getStorage(app, `gs://${bucket}`) : getStorage(app);
-  
+
   // Connect to emulator immediately after creation (dev mode only)
   if (import.meta.env.DEV) {
     try {
-      connectStorageEmulator(instance, 'localhost', 9199);
+      connectStorageEmulator(instance, emulatorHost, 9199);
       console.log(`✅ Connected storage${bucket ? ` (${bucket})` : ' (default)'} to emulator`);
     } catch (e: unknown) {
       const error = e as { message?: string };
@@ -49,7 +53,7 @@ export const functions = getFunctions(app, 'us-east1');
 // Connect Functions emulator
 if (import.meta.env.DEV) {
   try {
-    connectFunctionsEmulator(functions, 'localhost', 5001);
+    connectFunctionsEmulator(functions, emulatorHost, 5001);
     console.log('✅ Connected functions to emulator');
   } catch (e: unknown) {
     const error = e as { message?: string };
@@ -83,23 +87,12 @@ export interface CleanupFailedBatchesResponse {
   message: string;
 }
 
-// Create typed wrapper functions
-export const processBatches = async (
-  request: ProcessBatchesRequest
-): Promise<{ data: ProcessBatchesResponse }> => {
-  const callable = httpsCallable(functions, 'processBatches');
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
-  const result = await callable(request);
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-  return { data: result.data as ProcessBatchesResponse };
-};
+export const processBatches = httpsCallable<ProcessBatchesRequest, ProcessBatchesResponse>(
+  functions,
+  'processBatches',
+);
 
-export const cleanupFailedBatches = async (
-  request: CleanupFailedBatchesRequest
-): Promise<{ data: CleanupFailedBatchesResponse }> => {
-  const callable = httpsCallable(functions, 'cleanupFailedBatches');
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
-  const result = await callable(request);
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-  return { data: result.data as CleanupFailedBatchesResponse };
-};
+export const cleanupFailedBatches = httpsCallable<CleanupFailedBatchesRequest, CleanupFailedBatchesResponse>(
+  functions,
+  'cleanupFailedBatches',
+);

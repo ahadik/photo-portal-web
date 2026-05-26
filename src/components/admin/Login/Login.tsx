@@ -4,7 +4,11 @@ import { auth } from '~/services/firebase'
 
 import './Login.css';
 
-function Login() {
+interface LoginProps {
+  title?: string
+}
+
+function Login({ title = 'Photo Portal Admin' }: LoginProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -48,7 +52,7 @@ function Login() {
 
   return (
     <div className='login'>
-      <h1>Photo Portal Admin</h1>
+      <h1>{title}</h1>
       <p>You must be logged in to access the admin portal.</p>
       
       {error && (

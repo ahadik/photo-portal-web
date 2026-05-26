@@ -1,6 +1,27 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb'
 import { PhotoEntry, MessageEntry } from '~/types'
 
+export interface LocationFilterBounds {
+  north: number
+  south: number
+  east: number
+  west: number
+}
+
+export interface ActiveLocationFilter {
+  bounds: LocationFilterBounds
+  setAt: string
+}
+
+interface MetadataValue {
+  key: 'main'
+  likedPhotoIds: string[]
+  readMessageIds: string[]
+  lastSyncedPhotosAt: string
+  lastSyncedMessagesAt: string
+  activeLocationFilter: ActiveLocationFilter | null
+}
+
 interface PhotoPortalDB extends DBSchema {
   photos: {
     key: string
@@ -14,21 +35,20 @@ interface PhotoPortalDB extends DBSchema {
   }
   metadata: {
     key: string
-    value: {
-      likedPhotoIds: string[]
-      readMessageIds: string[]
-      lastSyncedPhotosAt: string
-      lastSyncedMessagesAt: string
-      activeLocationFilter: {
-        bounds: {
-          north: number
-          south: number
-          east: number
-          west: number
-        }
-        setAt: string
-      } | null
-    }
+    value: MetadataValue
+  }
+}
+
+const METADATA_KEY = 'main' as const
+
+function createDefaultMetadata(): MetadataValue {
+  return {
+    key: METADATA_KEY,
+    likedPhotoIds: [],
+    readMessageIds: [],
+    lastSyncedPhotosAt: '',
+    lastSyncedMessagesAt: '',
+    activeLocationFilter: null,
   }
 }
 
@@ -49,6 +69,14 @@ function getDB(): Promise<IDBPDatabase<PhotoPortalDB>> {
     })
   }
   return dbPromise
+}
+
+/**
+ * Load the singleton metadata record, returning a fresh default if it doesn't
+ * exist yet. The returned object is safe to mutate and write back.
+ */
+async function getOrCreateMetadata(db: IDBPDatabase<PhotoPortalDB>): Promise<MetadataValue> {
+  return (await db.get('metadata', METADATA_KEY)) ?? createDefaultMetadata()
 }
 
 export async function getCachedPhotos(): Promise<PhotoEntry[]> {
@@ -82,21 +110,13 @@ export async function cacheMessages(messages: MessageEntry[]): Promise<void> {
 
 export async function getLikedPhotoIds(): Promise<string[]> {
   const db = await getDB()
-  const metadata = await db.get('metadata', 'main')
-  return metadata?.likedPhotoIds || []
+  const metadata = await db.get('metadata', METADATA_KEY)
+  return metadata?.likedPhotoIds ?? []
 }
 
 export async function toggleLike(photoId: string): Promise<boolean> {
   const db = await getDB()
-  const existing = await db.get('metadata', 'main')
-  const metadata = existing || {
-    key: 'main',
-    likedPhotoIds: [] as string[],
-    readMessageIds: [] as string[],
-    lastSyncedPhotosAt: '',
-    lastSyncedMessagesAt: '',
-    activeLocationFilter: null,
-  }
+  const metadata = await getOrCreateMetadata(db)
 
   const index = metadata.likedPhotoIds.indexOf(photoId)
   if (index >= 0) {
@@ -111,21 +131,13 @@ export async function toggleLike(photoId: string): Promise<boolean> {
 
 export async function getReadMessageIds(): Promise<string[]> {
   const db = await getDB()
-  const metadata = await db.get('metadata', 'main')
-  return metadata?.readMessageIds || []
+  const metadata = await db.get('metadata', METADATA_KEY)
+  return metadata?.readMessageIds ?? []
 }
 
 export async function markMessageRead(messageId: string): Promise<void> {
   const db = await getDB()
-  const existing = await db.get('metadata', 'main')
-  const metadata = existing || {
-    key: 'main',
-    likedPhotoIds: [] as string[],
-    readMessageIds: [] as string[],
-    lastSyncedPhotosAt: '',
-    lastSyncedMessagesAt: '',
-    activeLocationFilter: null,
-  }
+  const metadata = await getOrCreateMetadata(db)
 
   if (!metadata.readMessageIds.includes(messageId)) {
     metadata.readMessageIds.push(messageId)
@@ -135,28 +147,14 @@ export async function markMessageRead(messageId: string): Promise<void> {
 
 export async function updateLastSyncedPhotosAt(timestamp: string): Promise<void> {
   const db = await getDB()
-  const metadata = await db.get('metadata', 'main') || {
-    key: 'main',
-    likedPhotoIds: [],
-    readMessageIds: [],
-    lastSyncedPhotosAt: '',
-    lastSyncedMessagesAt: '',
-    activeLocationFilter: null,
-  }
+  const metadata = await getOrCreateMetadata(db)
   metadata.lastSyncedPhotosAt = timestamp
   await db.put('metadata', metadata)
 }
 
 export async function updateLastSyncedMessagesAt(timestamp: string): Promise<void> {
   const db = await getDB()
-  const metadata = await db.get('metadata', 'main') || {
-    key: 'main',
-    likedPhotoIds: [],
-    readMessageIds: [],
-    lastSyncedPhotosAt: '',
-    lastSyncedMessagesAt: '',
-    activeLocationFilter: null,
-  }
+  const metadata = await getOrCreateMetadata(db)
   metadata.lastSyncedMessagesAt = timestamp
   await db.put('metadata', metadata)
 }
@@ -168,15 +166,7 @@ export async function updateLastSyncedMessagesAt(timestamp: string): Promise<voi
  */
 export async function initializeReadMessageCache(messageIds: string[]): Promise<void> {
   const db = await getDB()
-  const existing = await db.get('metadata', 'main')
-  const metadata = existing || {
-    key: 'main',
-    likedPhotoIds: [] as string[],
-    readMessageIds: [] as string[],
-    lastSyncedPhotosAt: '',
-    lastSyncedMessagesAt: '',
-    activeLocationFilter: null,
-  }
+  const metadata = await getOrCreateMetadata(db)
 
   // Only initialize if cache is empty (first time or after wipe)
   if (metadata.readMessageIds.length === 0 && messageIds.length > 0) {
@@ -193,57 +183,28 @@ export async function initializeReadMessageCache(messageIds: string[]): Promise<
  */
 export async function syncReadMessageCache(messageIds: string[]): Promise<void> {
   const db = await getDB()
-  const existing = await db.get('metadata', 'main')
-  const metadata = existing || {
-    key: 'main',
-    likedPhotoIds: [] as string[],
-    readMessageIds: [] as string[],
-    lastSyncedPhotosAt: '',
-    lastSyncedMessagesAt: '',
-    activeLocationFilter: null,
-  }
+  const metadata = await getOrCreateMetadata(db)
 
   // If cache is empty (first time), mark all existing messages as read
   if (metadata.readMessageIds.length === 0 && messageIds.length > 0) {
     metadata.readMessageIds = [...messageIds]
     await db.put('metadata', metadata)
   } else if (metadata.readMessageIds.length > 0) {
-    // If cache exists, clean it up by removing IDs that no longer exist
-    // (in case messages were deleted on the server)
+    // Drop IDs that no longer exist (in case messages were deleted on the server)
     metadata.readMessageIds = metadata.readMessageIds.filter((id) => messageIds.includes(id))
     await db.put('metadata', metadata)
   }
 }
 
-export interface LocationFilterBounds {
-  north: number
-  south: number
-  east: number
-  west: number
-}
-
-export interface ActiveLocationFilter {
-  bounds: LocationFilterBounds
-  setAt: string
-}
-
 export async function getActiveLocationFilter(): Promise<ActiveLocationFilter | null> {
   const db = await getDB()
-  const metadata = await db.get('metadata', 'main')
-  return metadata?.activeLocationFilter || null
+  const metadata = await db.get('metadata', METADATA_KEY)
+  return metadata?.activeLocationFilter ?? null
 }
 
 export async function setActiveLocationFilter(bounds: LocationFilterBounds): Promise<void> {
   const db = await getDB()
-  const existing = await db.get('metadata', 'main')
-  const metadata = existing || {
-    key: 'main',
-    likedPhotoIds: [] as string[],
-    readMessageIds: [] as string[],
-    lastSyncedPhotosAt: '',
-    lastSyncedMessagesAt: '',
-    activeLocationFilter: null,
-  }
+  const metadata = await getOrCreateMetadata(db)
 
   metadata.activeLocationFilter = {
     bounds,
@@ -255,15 +216,7 @@ export async function setActiveLocationFilter(bounds: LocationFilterBounds): Pro
 
 export async function clearActiveLocationFilter(): Promise<void> {
   const db = await getDB()
-  const existing = await db.get('metadata', 'main')
-  const metadata = existing || {
-    key: 'main',
-    likedPhotoIds: [] as string[],
-    readMessageIds: [] as string[],
-    lastSyncedPhotosAt: '',
-    lastSyncedMessagesAt: '',
-    activeLocationFilter: null,
-  }
+  const metadata = await getOrCreateMetadata(db)
 
   metadata.activeLocationFilter = null
   await db.put('metadata', metadata)

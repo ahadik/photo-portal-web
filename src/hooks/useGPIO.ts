@@ -55,9 +55,7 @@ export function useGPIO(options: UseGPIOOptions = {}): UseGPIOReturn {
         // Track outgoing message
         setWsMessages((prev) => [...prev, { direction: 'out', type: 'LED', data: value }])
       } catch (error) {
-        if (!virtualMode) {
-          console.error('Failed to send LED command:', error)
-        }
+        console.error('Failed to send LED command:', error)
       }
     }
   }, [virtualMode])
@@ -79,9 +77,7 @@ export function useGPIO(options: UseGPIOOptions = {}): UseGPIOReturn {
         // Track outgoing message
         setWsMessages((prev) => [...prev, { direction: 'out', type: event.type, data: event.value }])
       } catch (error) {
-        if (!virtualMode) {
-          console.error('Failed to send event to GPIO service:', error)
-        }
+        console.error('Failed to send event to GPIO service:', error)
       }
     }
   }, [virtualMode])
@@ -220,7 +216,7 @@ export function useGPIO(options: UseGPIOOptions = {}): UseGPIOReturn {
       }
     }
     // Only run once on mount - reconnect logic is handled internally
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [])
 
   return {

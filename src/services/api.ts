@@ -1,114 +1,77 @@
-import { ref, getBytes, getDownloadURL } from 'firebase/storage';
+import { ref, getBytes, getDownloadURL, StorageReference } from 'firebase/storage';
 import { dataStorage, mediaStorage } from './firebase';
 import { PhotosJson, MessagesJson } from '~/types';
 import { config } from '~/config';
 
-export async function fetchPhotosIndex(): Promise<PhotosJson> {
-  const fileRef = ref(dataStorage, 'photos.json');
-  
-  try {
-    const bytes = await getBytes(fileRef);
-    const text = new TextDecoder().decode(bytes);
-    const data = JSON.parse(text) as PhotosJson;
-    return data;
-  } catch (error: unknown) {
-    // Handle 404 / object not found errors gracefully
-    // Firebase SDK may return different error codes depending on context
-    const errorObj = error as { code?: string; message?: string };
-    if (
-      errorObj.code === 'storage/object-not-found' ||
-      errorObj.code === 'storage/unauthorized' ||
-      errorObj.message?.includes('404') ||
-      errorObj.message?.includes('Not Found')
-    ) {
-      // Return empty structure if file doesn't exist
-      console.log('📝 photos.json not found in emulator, returning empty structure');
-      return {
-        version: 1,
-        lastUpdated: new Date().toISOString(),
-        photos: [],
-      };
-    }
-    const errorMessage = errorObj.message ?? 'Unknown error';
-    throw new Error(`Failed to fetch photos: ${errorMessage}`);
-  }
-}
+type StorageErrorLike = { code?: string; message?: string };
 
-export async function fetchMessagesIndex(): Promise<MessagesJson> {
-  const fileRef = ref(dataStorage, 'messages.json');
-  
-  try {
-    const bytes = await getBytes(fileRef);
-    const text = new TextDecoder().decode(bytes);
-    const data = JSON.parse(text) as MessagesJson;
-    return data;
-  } catch (error: unknown) {
-    // Handle 404 / object not found errors gracefully
-    // Firebase SDK may return different error codes depending on context
-    const errorObj = error as { code?: string; message?: string };
-    if (
-      errorObj.code === 'storage/object-not-found' ||
-      errorObj.code === 'storage/unauthorized' ||
-      errorObj.message?.includes('404') ||
-      errorObj.message?.includes('Not Found')
-    ) {
-      // Return empty structure if file doesn't exist
-      console.log('📝 messages.json not found in emulator, returning empty structure');
-      return {
-        version: 1,
-        lastUpdated: new Date().toISOString(),
-        messages: [],
-      };
-    }
-    const errorMessage = errorObj.message ?? 'Unknown error';
-    throw new Error(`Failed to fetch messages: ${errorMessage}`);
-  }
+function isMissingObject(error: StorageErrorLike): boolean {
+  return (
+    error.code === 'storage/object-not-found' ||
+    error.code === 'storage/unauthorized' ||
+    !!error.message?.includes('404') ||
+    !!error.message?.includes('Not Found')
+  );
 }
 
 /**
- * Get an authenticated download URL for a photo using Firebase Storage SDK.
- * This function handles authentication automatically and works with both
- * emulator and production environments.
- * @param photoId - The photo ID (without file extension)
- * @returns Promise resolving to the authenticated download URL
+ * Fetch a JSON index file from the data bucket, returning `fallback` if the
+ * object is missing (the emulator is empty on first run, for example).
  */
-export async function getPhotoDownloadUrl(photoId: string): Promise<string> {
+async function fetchJsonIndex<T>(filename: string, fallback: T, label: string): Promise<T> {
+  const fileRef = ref(dataStorage, filename);
   try {
-    const photoRef = ref(mediaStorage, `photos/${photoId}.jpg`);
-    return await getDownloadURL(photoRef);
-  } catch (error: unknown) {
-    const errorObj = error as { code?: string; message?: string };
-    if (
-      errorObj.code === 'storage/object-not-found' ||
-      errorObj.code === 'storage/unauthorized'
-    ) {
-      throw new Error(`Photo not found or access denied: ${photoId}`);
+    const bytes = await getBytes(fileRef);
+    return JSON.parse(new TextDecoder().decode(bytes)) as T;
+  } catch (error) {
+    const errorObj = error as StorageErrorLike;
+    if (isMissingObject(errorObj)) {
+      console.log(`📝 ${filename} not found, returning empty structure`);
+      return fallback;
     }
-    const errorMessage = errorObj.message ?? 'Unknown error';
-    throw new Error(`Failed to get photo URL: ${errorMessage}`);
+    throw new Error(`Failed to fetch ${label}: ${errorObj.message ?? 'Unknown error'}`);
   }
 }
 
+export function fetchPhotosIndex(): Promise<PhotosJson> {
+  return fetchJsonIndex<PhotosJson>(
+    'photos.json',
+    { version: 1, lastUpdated: new Date().toISOString(), photos: [] },
+    'photos',
+  );
+}
+
+export function fetchMessagesIndex(): Promise<MessagesJson> {
+  return fetchJsonIndex<MessagesJson>(
+    'messages.json',
+    { version: 1, lastUpdated: new Date().toISOString(), messages: [] },
+    'messages',
+  );
+}
+
 /**
- * Get an authenticated download URL for a thumbnail using Firebase Storage SDK.
- * @param photoId - The photo ID (without file extension)
- * @returns Promise resolving to the authenticated download URL
+ * Get an authenticated download URL for an object under `mediaStorage`.
+ * `kind` is purely for error messages.
  */
-export async function getThumbnailDownloadUrl(photoId: string): Promise<string> {
+async function getMediaDownloadUrl(path: string, kind: string): Promise<string> {
   try {
-    const thumbRef = ref(mediaStorage, `thumbs/${photoId}.jpg`);
-    return await getDownloadURL(thumbRef);
-  } catch (error: unknown) {
-    const errorObj = error as { code?: string; message?: string };
-    if (
-      errorObj.code === 'storage/object-not-found' ||
-      errorObj.code === 'storage/unauthorized'
-    ) {
-      throw new Error(`Thumbnail not found or access denied: ${photoId}`);
+    const objectRef: StorageReference = ref(mediaStorage, path);
+    return await getDownloadURL(objectRef);
+  } catch (error) {
+    const errorObj = error as StorageErrorLike;
+    if (errorObj.code === 'storage/object-not-found' || errorObj.code === 'storage/unauthorized') {
+      throw new Error(`${kind} not found or access denied: ${path}`);
     }
-    const errorMessage = errorObj.message ?? 'Unknown error';
-    throw new Error(`Failed to get thumbnail URL: ${errorMessage}`);
+    throw new Error(`Failed to get ${kind} URL: ${errorObj.message ?? 'Unknown error'}`);
   }
+}
+
+export function getPhotoDownloadUrl(photoId: string): Promise<string> {
+  return getMediaDownloadUrl(`photos/${photoId}.jpg`, 'Photo');
+}
+
+export function getThumbnailDownloadUrl(photoId: string): Promise<string> {
+  return getMediaDownloadUrl(`thumbs/${photoId}.jpg`, 'Thumbnail');
 }
 
 /**
@@ -311,7 +274,7 @@ export async function reverseGeocode(lon: number, lat: number, zoom: number): Pr
 
   const url = new URL('https://maps.googleapis.com/maps/api/geocode/json')
   url.searchParams.set('latlng', `${lat},${lon}`)
-  url.searchParams.set('key', config.googleMapsApiKey as string)
+  url.searchParams.set('key', config.googleMapsApiKey)
   url.searchParams.set('result_type', validAddressTypes)
 
   try {
@@ -320,7 +283,6 @@ export async function reverseGeocode(lon: number, lat: number, zoom: number): Pr
       return null
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = (await response.json()) as {
       status: string
       results?: Array<{

@@ -12,51 +12,17 @@ interface PhotoDisplayProps {
 }
 
 /**
- * Hook to get image URLs from context
- */
-function usePhotoUrl(photo: PhotoEntry | null): { url: string | null; error: string | null } {
-  const { getPhotoUrl } = usePhotoUrls()
-  
-  if (!photo) {
-    return { url: null, error: null }
-  }
-
-  const url = getPhotoUrl(photo.id)
-  
-  if (!url) {
-    return { 
-      url: null, 
-      error: `Photo URL not available for ${photo.id}` 
-    }
-  }
-
-  return { url, error: null }
-}
-
-/**
  * SinglePhotoDisplay renders a single photo with different display modes
  */
-function SinglePhotoDisplay({ 
-  photo, 
+function SinglePhotoDisplay({
+  photo,
   displayMode
-}: { 
+}: {
   photo: PhotoEntry
   displayMode: 'full-bleed' | 'centered'
 }) {
-  const { url, error } = usePhotoUrl(photo)
-
-  if (error) {
-    return (
-      <div
-        className='photo-display__frame photo-display__frame--single'
-      >
-        <h4>
-          Error loading photo
-        </h4>
-        <p>{error}</p>
-      </div>
-    )
-  }
+  const { getPhotoUrl } = usePhotoUrls()
+  const url = getPhotoUrl(photo.id)
 
   if (!url) {
     return (
@@ -104,23 +70,11 @@ function PairPhotoDisplay({
   photos: [PhotoEntry, PhotoEntry]
   displayMode: 'side-by-side' | 'stacked'
 }) {
-  const photo1Url = usePhotoUrl(photos[0])
-  const photo2Url = usePhotoUrl(photos[1])
+  const { getPhotoUrl } = usePhotoUrls()
+  const url1 = getPhotoUrl(photos[0].id)
+  const url2 = getPhotoUrl(photos[1].id)
 
-  const isLoading = !photo1Url.url || !photo2Url.url
-  const hasError = photo1Url.error || photo2Url.error
-
-  if (hasError) {
-    return (
-      <div className='photo-display__frame photo-display__frame--pair'>
-        <h4>
-          Error loading photos
-        </h4>
-      </div>
-    )
-  }
-
-  if (isLoading) {
+  if (!url1 || !url2) {
     return (
       <div className='photo-display__frame photo-display__frame--pair'>
         <h4>Loading images...</h4>
@@ -133,14 +87,14 @@ function PairPhotoDisplay({
       <div className='photo-display__frame photo-display__frame--full-bleed photo-display__frame--side-by-side'>
         <div className='photo-display__container'>
           <img
-            src={photo1Url.url!}
+            src={url1}
             alt={photos[0].location?.name || 'Photo 1'}
             loading="eager"
           />
         </div>
         <div className='photo-display__container'>
           <img
-            src={photo2Url.url!}
+            src={url2}
             alt={photos[1].location?.name || 'Photo 2'}
             loading="eager"
           />
@@ -156,14 +110,14 @@ function PairPhotoDisplay({
     >
       <div className='photo-display__container'>
         <img
-          src={photo1Url.url!}
+          src={url1}
           alt={photos[0].location?.name || 'Photo 1'}
           loading="eager"
         />
       </div>
       <div className='photo-display__container'>
         <img
-          src={photo2Url.url!}
+          src={url2}
           alt={photos[1].location?.name || 'Photo 2'}
           loading="eager"
         />

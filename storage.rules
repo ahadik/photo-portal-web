@@ -19,12 +19,11 @@ service firebase.storage {
     match /{allPaths=**} {
       // Device account: read-only access
       allow read: if isDeviceAccount();
-      
+
       // Admin account: read and write access
       allow read, write: if isAdminAccount();
-      
-      // Deny all other access
-      allow read, write: if false;
+
+      // All other access is implicitly denied (Storage rules are deny-by-default).
     }
   }
 }

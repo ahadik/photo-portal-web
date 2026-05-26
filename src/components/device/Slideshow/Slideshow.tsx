@@ -14,6 +14,7 @@ interface SlideshowProps {
   messageOverlay?: React.ReactNode
   showMetadata?: boolean
   fadeDuration?: number // in milliseconds, default 1000ms
+  onPhotoChange?: (photoId: string | null) => void
 }
 
 export interface SlideshowRef {
@@ -21,7 +22,6 @@ export interface SlideshowRef {
   goToNext: () => void
   pause: () => void
   resume: () => void
-  getCurrentPhotoId: () => string | null
 }
 
 /**
@@ -44,7 +44,7 @@ function shuffleArray<T>(array: T[]): T[] {
  * Detects screen orientation and creates compositions accordingly.
  */
 const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
-  ({ photos, slideInterval = 10000, messageOverlay, showMetadata = false, fadeDuration = 1000 }, ref) => {
+  ({ photos, slideInterval = 10000, messageOverlay, showMetadata = false, fadeDuration = 1000, onPhotoChange }, ref) => {
     const [currentIndex, setCurrentIndex] = useState(0)
     const [isPaused, setIsPaused] = useState(false)
     const [touchStart, setTouchStart] = useState<number | null>(null)
@@ -176,9 +176,10 @@ const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
       setIsPaused(false)
     }, [])
 
-    const getCurrentPhotoId = useCallback(() => {
-      return currentPhoto?.id || null
-    }, [currentPhoto])
+    // Notify parent when the displayed photo changes
+    useEffect(() => {
+      onPhotoChange?.(currentPhoto?.id ?? null)
+    }, [currentPhoto, onPhotoChange])
 
     // Expose methods via ref for external control
     useImperativeHandle(ref, () => ({
@@ -186,8 +187,7 @@ const Slideshow = forwardRef<SlideshowRef, SlideshowProps>(
       goToNext,
       pause,
       resume,
-      getCurrentPhotoId,
-    }), [goToPhoto, goToNext, pause, resume, getCurrentPhotoId])
+    }), [goToPhoto, goToNext, pause, resume])
 
     // Touch event handlers for swipe gestures
     const onTouchStart = (e: React.TouchEvent) => {

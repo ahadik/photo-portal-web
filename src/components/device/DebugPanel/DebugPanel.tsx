@@ -48,8 +48,9 @@ export default function DebugPanel({
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
+      // ES2022 option not present in lib.es2020 DateTimeFormatOptions
       fractionalSecondDigits: 3,
-    })
+    } as Intl.DateTimeFormatOptions)
   }
 
   // Add log entry
@@ -96,8 +97,9 @@ export default function DebugPanel({
       // Process new events
       for (let i = lastLength; i < currentLength; i++) {
         const event = virtualButtonEvents[i]
-        const description = `Virtual Button: ${event.type}${event.value !== undefined ? ` = ${JSON.stringify(event.value)}` : ''}`
-        addLog('local', event.type, event.value, description)
+        const value = 'value' in event ? event.value : undefined
+        const description = `Virtual Button: ${event.type}${value !== undefined ? ` = ${JSON.stringify(value)}` : ''}`
+        addLog('local', event.type, value, description)
       }
       lastVirtualEventsLengthRef.current = currentLength
     }

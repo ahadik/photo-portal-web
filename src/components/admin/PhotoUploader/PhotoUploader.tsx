@@ -23,6 +23,12 @@ interface ProcessingStatus {
   }
 }
 
+type LogEntry = {
+  type?: 'count' | 'complete' | 'skip' | 'error'
+  totalPhotos?: number
+  error?: string
+}
+
 // Simple UUID generator
 function generateUUID(): string {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${Math.random().toString(36).substr(2, 9)}`
@@ -101,20 +107,14 @@ function PhotoUploader() {
 
           for (const line of lines) {
             try {
-              // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-              const entry = JSON.parse(line) as { type?: string; totalPhotos?: number; error?: string }
-              // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+              const entry: LogEntry = JSON.parse(line) as LogEntry
               if (entry.type === 'count') {
-                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-                totalPhotos = entry.totalPhotos || 0
-                // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+                totalPhotos = entry.totalPhotos ?? 0
               } else if (entry.type === 'complete' || entry.type === 'skip') {
                 completedPhotos++
-                // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
               } else if (entry.type === 'error') {
                 hasError = true
-                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-                errorMessage = entry.error || 'Unknown error'
+                errorMessage = entry.error ?? 'Unknown error'
               }
             } catch {
               // Skip invalid JSON lines
@@ -307,14 +307,11 @@ function PhotoUploader() {
     setSelectedBatches(new Set())
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
       const result = await processBatches({ batchIds: batchesToProcess })
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-      const data = result.data as { processId: string; status: string }
-      
+
       // Update with processId to start polling
       setProcessingStatus({
-        processId: data.processId,
+        processId: result.data.processId,
         isProcessing: true,
         error: null,
       })
@@ -335,7 +332,6 @@ function PhotoUploader() {
     }
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
       await cleanupFailedBatches({ batchIds: failedBatches })
       setProcessingStatus({
         processId: null,
